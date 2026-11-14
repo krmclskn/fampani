@@ -28,6 +28,15 @@ export default async function Ayarlar() {
             <input id="count_tolerance_pct" name="count_tolerance_pct" inputMode="decimal" className="input" defaultValue={setting("count_tolerance_pct")} required />
             <p className="muted mt-1">Daha büyük farklar yönetici onayı ister.</p>
           </div>
+          <div className="col-span-2">
+            <label className="label" htmlFor="count_abs_tolerance">Sayım mutlak tolerans (birim)</label>
+            <input id="count_abs_tolerance" name="count_abs_tolerance" inputMode="decimal" className="input" defaultValue={setting("count_abs_tolerance")} required />
+            <p className="muted mt-1">Beklenen miktar çok küçükken yüzde yanıltır; bu kadar birime kadar fark uyarı üretmez.</p>
+          </div>
+          <div className="col-span-2">
+            <label className="label" htmlFor="price_alert_pct">Alış fiyatı değişim uyarısı (%)</label>
+            <input id="price_alert_pct" name="price_alert_pct" inputMode="decimal" className="input" defaultValue={setting("price_alert_pct")} required />
+          </div>
           <div><label className="label" htmlFor="open_time">Açılış</label><input id="open_time" type="time" name="open_time" className="input" defaultValue={setting("open_time")} required /></div>
           <div><label className="label" htmlFor="close_time">Kapanış</label><input id="close_time" type="time" name="close_time" className="input" defaultValue={setting("close_time")} required /></div>
           <div className="col-span-2 self-end"><Submit>Kaydet</Submit></div>

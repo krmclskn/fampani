@@ -72,6 +72,12 @@ export const can = {
   orderPurchase: (u: User) => is(u, "sahip", "operasyon", "stok"),
   receivePurchase: (u: User) => !is(u, "calisan"),
   markPaid: (u: User) => is(u, "sahip"),
+  seeFinance: (u: User) => is(u, "sahip", "operasyon"),
+  seePrices: (u: User) => !is(u, "calisan"),
+  editProducts: (u: User) => is(u, "sahip", "operasyon", "sef"),
+  enterSales: (u: User) => is(u, "sahip", "operasyon", "bar"),
+  approveSales: (u: User) => is(u, "sahip", "operasyon"),
+  editExpenses: (u: User) => is(u, "sahip", "operasyon"),
   closeDay: (u: User) =>
     is(u, "sahip", "operasyon", "bar") ||
     !!get("SELECT 1 FROM shifts WHERE date=? AND user_id=? AND is_lead=1", todayStr(), u.id),

@@ -1,33 +1,13 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
-import { audit, get, hashPassword, run, setting, todayStr, tx, verifyPassword } from "./db";
+import { audit, stockMove, get, hashPassword, run, setting, todayStr, tx, verifyPassword } from "./db";
 import { can, createSession, destroySession, requireUser, ROLE_LABEL, type Role, type User } from "./auth";
-import { EXCEPTION_REASONS, EXCEPTION_ROUTE, LOCATIONS, UNITS, parseKurus, parseNum, str } from "./util";
+import { fail, ok } from "./flash";
+import { COUNT_REASONS, EXCEPTION_REASONS, EXCEPTION_ROUTE, LOCATIONS, UNITS, parseKurus, parseNum, str } from "./util";
 
 const now = () => new Date().toISOString();
 const id = (f: FormData, k = "id") => Number(f.get(k)) || 0;
-
-/** Geldiği sayfaya mesajla döner. */
-async function back(kind: "ok" | "hata", msg: string): Promise<never> {
-  let target = "/";
-  try {
-    const ref = (await headers()).get("referer");
-    if (ref) {
-      const u = new URL(ref);
-      u.searchParams.delete("ok");
-      u.searchParams.delete("hata");
-      u.searchParams.set(kind, msg);
-      target = u.pathname + "?" + u.searchParams.toString();
-    } else target = `/?${kind}=${encodeURIComponent(msg)}`;
-  } catch {}
-  if (kind === "ok") revalidatePath("/", "layout");
-  redirect(target);
-}
-const fail = (msg: string) => back("hata", msg);
-const ok = (msg: string) => back("ok", msg);
 
 /* ---------- Giriş ---------- */
 
@@ -47,7 +27,7 @@ export async function login(f: FormData) {
   attempts.delete(username);
   await createSession(u.id);
   audit(u.id, "Giriş yaptı");
-  redirect("/");
+  redirect(["sahip", "operasyon"].includes(get<{ role: string }>("SELECT role FROM users WHERE id=?", u.id)?.role ?? "") ? "/finans" : "/");
 }
 
 export async function logout() {
@@ -215,13 +195,6 @@ export async function handoverAccept(f: FormData) {
 type Item = { id: number; name: string; unit: string; qty: number };
 const getItem = (iid: number) => get<Item>("SELECT id,name,unit,qty FROM stock_items WHERE id=? AND active=1", iid);
 
-function move(itemId: number, delta: number, reason: string, ref: string | null, note: string | null, userId: number) {
-  run("UPDATE stock_items SET qty = qty + ? WHERE id=?", delta, itemId);
-  const after = get<{ qty: number }>("SELECT qty FROM stock_items WHERE id=?", itemId)!.qty;
-  run("INSERT INTO stock_movements(item_id,delta,qty_after,reason,ref,note,user_id,at) VALUES(?,?,?,?,?,?,?,?)",
-    itemId, delta, after, reason, ref, note, userId, now());
-}
-
 export async function itemSave(f: FormData) {
   const u = await requireUser();
   if (!can.editStock(u)) return fail("Stok kartı düzenleme yetkiniz yok.");
@@ -242,7 +215,7 @@ export async function itemSave(f: FormData) {
   tx(() => {
     const nid = run("INSERT INTO stock_items(name,category,unit,location,qty,min_level,critical_level,supplier_id) VALUES(?,?,?,?,0,?,?,?)",
       name, str(f.get("category")), unit, location, min, crit, sup);
-    if (qty) move(nid, qty, "acilis", null, "Açılış miktarı", u.id);
+    if (qty) stockMove(nid, qty, "acilis", null, "Açılış miktarı", u.id);
     audit(u.id, "Stok kartı açtı", "stock_item", nid, name);
   });
   return ok("Stok kartı açıldı.");
@@ -267,17 +240,18 @@ export async function stockCount(f: FormData) {
   if (!it) return fail("Stok kalemi bulunamadı.");
   if (counted == null || counted < 0) return fail("Sayılan miktarı girin.");
   const diff = counted - it.qty;
-  const tol = (Number(setting("count_tolerance_pct")) / 100) * Math.max(it.qty, 0);
-  if (diff !== 0 && !note) return fail("Fark var: kısa bir açıklama yazın.");
+  const tol = Math.max((Number(setting("count_tolerance_pct")) / 100) * Math.max(it.qty, 0), Number(setting("count_abs_tolerance")) || 0);
+  const reason = str(f.get("reason"));
+  if (diff !== 0 && !(reason && COUNT_REASONS.includes(reason))) return fail("Fark var: fark nedenini seçin.");
   const small = Math.abs(diff) <= tol;
   const direct = diff === 0 || small || can.approveCount(u);
   tx(() => {
     const cid = run(
-      "INSERT INTO stock_counts(item_id,previous,counted,note,status,counted_by,counted_at,decided_by,decided_at) VALUES(?,?,?,?,?,?,?,?,?)",
-      it.id, it.qty, counted, note, direct ? "islendi" : "onay_bekliyor", u.id, now(),
+      "INSERT INTO stock_counts(item_id,previous,counted,note,reason,status,counted_by,counted_at,decided_by,decided_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      it.id, it.qty, counted, note, diff !== 0 ? reason : null, direct ? "islendi" : "onay_bekliyor", u.id, now(),
       direct && !small && diff !== 0 ? u.id : null, direct && !small && diff !== 0 ? now() : null,
     );
-    if (direct && diff !== 0) move(it.id, diff, "sayim", `count:${cid}`, note, u.id);
+    if (direct && diff !== 0) stockMove(it.id, diff, "sayim", `count:${cid}`, note, u.id);
     audit(u.id, "Stok saydı", "stock_item", it.id, `${it.name}: ${it.qty} → ${counted} ${it.unit}${direct ? "" : " (onay bekliyor)"}`);
   });
   return ok(direct ? "Sayım işlendi." : "Fark büyük: sayım yönetici onayına gönderildi.");
@@ -293,7 +267,7 @@ export async function countDecide(f: FormData) {
   tx(() => {
     run("UPDATE stock_counts SET status=?, decided_by=?, decided_at=? WHERE id=?", approve ? "islendi" : "reddedildi", u.id, now(), c.id);
     // Sayımdan sonraki hareketler korunsun diye mutlak değer değil fark işlenir.
-    if (approve) move(c.item_id, c.counted - c.previous, "sayim", `count:${c.id}`, c.note, u.id);
+    if (approve) stockMove(c.item_id, c.counted - c.previous, "sayim", `count:${c.id}`, c.note, u.id);
     audit(u.id, approve ? "Sayım farkını onayladı" : "Sayımı reddetti (yeniden sayım)", "stock_count", c.id);
     if (!approve)
       run(`INSERT INTO tasks(date,title,kind,assignee_id,priority,source,created_by,created_at)
@@ -391,8 +365,13 @@ export async function purchaseReceive(f: FormData) {
        doc_no=COALESCE(?,doc_no), invoice_amount=COALESCE(?,invoice_amount), receive_note=COALESCE(?,receive_note) WHERE id=?`,
       complete ? "teslim_alindi" : "eksik_teslim", u.id, now(), totalGot, totalBad, str(f.get("doc_no")), inv, str(f.get("note")), p.id,
     );
-    if (accepted > 0) move(p.item_id, accepted, "teslim", `purchase:${p.id}`, null, u.id);
-    if (p.unit_price != null) run("UPDATE stock_items SET last_price=? WHERE id=?", p.unit_price, p.item_id);
+    if (accepted > 0) stockMove(p.item_id, accepted, "teslim", `purchase:${p.id}`, null, u.id);
+    if (p.unit_price != null) {
+      const prev = get<{ last_price: number | null }>("SELECT last_price FROM stock_items WHERE id=?", p.item_id)?.last_price ?? null;
+      if (prev !== p.unit_price)
+        run("INSERT INTO item_prices(item_id,price,prev_price,purchase_id,at) VALUES(?,?,?,?,?)", p.item_id, p.unit_price, prev, p.id, now());
+      run("UPDATE stock_items SET last_price=? WHERE id=?", p.unit_price, p.item_id);
+    }
     audit(u.id, "Teslim aldı", "purchase", p.id, `Gelen ${got}, hasarlı ${bad}, kabul ${accepted}`);
   });
   return ok(complete ? "Teslim alındı, stoğa işlendi." : "Eksik teslim kaydedildi; kabul edilen miktar stoğa işlendi.");
@@ -432,12 +411,14 @@ export async function settingsSave(f: FormData) {
   const u = await requireUser();
   if (!can.manage(u)) return fail("Yetkiniz yok.");
   const limit = parseKurus(f.get("purchase_limit")), tol = parseNum(f.get("count_tolerance_pct"));
+  const abs = parseNum(f.get("count_abs_tolerance")), pa = parseNum(f.get("price_alert_pct"));
+  if (abs == null || abs < 0 || pa == null || pa < 0) return fail("Değerleri kontrol edin.");
   const open = str(f.get("open_time")) ?? "", close = str(f.get("close_time")) ?? "";
   if (limit == null || limit < 0 || tol == null || tol < 0 || tol > 100 || !/^\d{2}:\d{2}$/.test(open) || !/^\d{2}:\d{2}$/.test(close) || open >= close)
     return fail("Değerleri kontrol edin.");
   if (u.role !== "sahip" && limit !== Number(setting("purchase_limit"))) return fail("Onay limitini yalnızca işletme sahibi değiştirebilir.");
   const set = (k: string, v: string) => run("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", k, v);
-  set("purchase_limit", String(limit)); set("count_tolerance_pct", String(tol)); set("open_time", open); set("close_time", close);
+  set("purchase_limit", String(limit)); set("count_tolerance_pct", String(tol)); set("count_abs_tolerance", String(abs)); set("price_alert_pct", String(pa)); set("open_time", open); set("close_time", close);
   audit(u.id, "İşletme ayarlarını güncelledi");
   return ok("Ayarlar kaydedildi.");
 }

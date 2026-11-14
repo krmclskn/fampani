@@ -60,7 +60,9 @@ export function fmtDate(date: string) {
 export function parseNum(v: FormDataEntryValue | null): number | null {
   if (typeof v !== "string" || !v.trim()) return null;
   let s = v.trim().replace(/\s/g, "");
+  // Türkçe yazım: nokta binlik ayırıcı, virgül ondalık ("410.000" = 410000, "1.250,50" = 1250.5).
   if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+  else if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, "");
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
@@ -69,3 +71,24 @@ export function parseKurus(v: FormDataEntryValue | null): number | null {
   return n == null ? null : Math.round(n * 100);
 }
 export const str = (v: FormDataEntryValue | null) => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+export const COUNT_REASONS = [
+  "Satış girişi eksik", "Reçete miktarı yanlış", "Fire/ikram kaydı unutuldu", "Teslimat eksik veya yanlış girildi",
+  "Sayım hatası", "Sebep bilinmiyor",
+];
+export const WASTE_KINDS: Record<string, string> = { fire: "Fire / zayi", ikram: "İkram", ic_kullanim: "İç kullanım" };
+export const WASTE_REASONS = ["Üretim hatası", "Bozulma", "Fazla üretim", "Düşme/hasar", "İade", "Tarih aşımı", "Diğer"];
+export const tlInput = (kurus: number | null | undefined) => (kurus == null ? "" : String(kurus / 100).replace(".", ","));
+
+/** Kapalı modüller: ürün/reçete bazlı satış ve kasa. Yeniden açmak için true yapın. */
+export const FEATURES = { kasa: false };
+
+const AYLAR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+export const isPeriod = (s: string | null | undefined): s is string => !!s && /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
+export function shiftPeriod(p: string, d: number) {
+  const [y, m] = p.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 + d, 1)).toISOString().slice(0, 7);
+}
+export const periodLabel = (p: string) => `${AYLAR[Number(p.slice(5)) - 1]} ${p.slice(0, 4)}`;
+export const periodShort = (p: string) => `${AYLAR[Number(p.slice(5)) - 1].slice(0, 3)} ${p.slice(2, 4)}`;
+export const daysIn = (p: string) => { const [y, m] = p.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };

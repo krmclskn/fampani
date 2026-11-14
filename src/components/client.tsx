@@ -4,27 +4,48 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useFormStatus } from "react-dom";
 
-export function Nav({ links }: { links: { href: string; label: string; count?: number }[] }) {
-  const path = usePathname();
+type NavLink = { href: string; label: string; count?: number };
+
+function NavRow({ links, path, small }: { links: NavLink[]; path: string; small?: boolean }) {
   return (
-    <nav className="flex gap-1 overflow-x-auto px-3 pb-2 sm:px-6" aria-label="Ana menü">
+    <nav className={`flex gap-1 overflow-x-auto px-3 pb-2 sm:flex-wrap sm:px-6 ${small ? "border-t border-line pt-2" : ""}`} aria-label={small ? "Operasyon menüsü" : "Ana menü"}>
       {links.map((l) => {
         const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
         return (
-          <Link
-            key={l.href}
-            href={l.href}
-            aria-current={active ? "page" : undefined}
-            className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${
-              active ? "bg-accent text-white" : "text-muted hover:bg-[#eeebe3]"
-            }`}
-          >
+          <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined}
+            className={`whitespace-nowrap rounded-lg px-3 font-medium ${small ? "py-1.5 text-[13px]" : "py-2 text-sm"} ${
+              active ? (small ? "bg-[#dcefe9] text-accent" : "bg-accent text-white") : "text-muted hover:bg-[#eeebe3]"}`}>
             {l.label}
-            {l.count ? <span className={`ml-1.5 rounded-full px-1.5 text-xs ${active ? "bg-white/25" : "bg-[#fbe9cf] text-warn"}`}>{l.count}</span> : null}
+            {l.count ? <span className="ml-1.5 rounded-full bg-[#fbe9cf] px-1.5 text-xs text-warn">{l.count}</span> : null}
           </Link>
         );
       })}
     </nav>
+  );
+}
+
+/** Yönetici: finans menüsü + "Operasyon" altında günlük işler. Personel: yalnızca operasyon menüsü. */
+export function Nav({ main, ops }: { main: NavLink[]; ops: NavLink[] }) {
+  const path = usePathname();
+  if (!main.length) return <NavRow links={ops} path={path} />;
+  const inOps = !main.some((l) => path.startsWith(l.href));
+  const total = ops.reduce((s, l) => s + (l.count ?? 0), 0);
+  return (
+    <>
+      <nav className="flex gap-1 overflow-x-auto px-3 pb-2 sm:px-6" aria-label="Ana menü">
+        {[...main, { href: "/", label: "Operasyon", count: total }].map((l) => {
+          const active = l.href === "/" ? inOps : path.startsWith(l.href);
+          return (
+            <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined}
+              className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${active ? "bg-accent text-white" : "text-muted hover:bg-[#eeebe3]"}`}>
+              {l.label}
+              {l.count ? <span className={`ml-1.5 rounded-full px-1.5 text-xs ${active ? "bg-white/25" : "bg-[#fbe9cf] text-warn"}`}>{l.count}</span> : null}
+            </Link>
+          );
+        })}
+      </nav>
+      {inOps && <NavRow links={ops} path={path} small />}
+    </>
   );
 }
 

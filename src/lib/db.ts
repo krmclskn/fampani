@@ -84,6 +84,78 @@ CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id), action TEXT NOT NULL,
   entity TEXT, entity_id INTEGER, detail TEXT, at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, category TEXT, price INTEGER NOT NULL,
+  tax_rate REAL NOT NULL DEFAULT 0, packaging_cost INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS recipe_items (
+  id INTEGER PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id),
+  item_id INTEGER NOT NULL REFERENCES stock_items(id), qty REAL NOT NULL, UNIQUE(product_id, item_id)
+);
+CREATE TABLE IF NOT EXISTS payment_channels (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, commission_pct REAL NOT NULL DEFAULT 0,
+  fixed_fee INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS sales_days (
+  date TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'taslak', entered_by INTEGER REFERENCES users(id),
+  entered_at TEXT, approved_by INTEGER REFERENCES users(id), approved_at TEXT, note TEXT
+);
+CREATE TABLE IF NOT EXISTS sale_lines (
+  id INTEGER PRIMARY KEY, date TEXT NOT NULL, product_id INTEGER NOT NULL REFERENCES products(id),
+  qty REAL NOT NULL, unit_price INTEGER NOT NULL, discount INTEGER NOT NULL DEFAULT 0, refund INTEGER NOT NULL DEFAULT 0,
+  tax_rate REAL NOT NULL DEFAULT 0, unit_cost INTEGER, kind TEXT NOT NULL DEFAULT 'satis', note TEXT,
+  created_by INTEGER REFERENCES users(id), created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS sale_lines_date ON sale_lines(date);
+CREATE TABLE IF NOT EXISTS sale_payments (
+  date TEXT NOT NULL, channel_id INTEGER NOT NULL REFERENCES payment_channels(id), amount INTEGER NOT NULL,
+  commission INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(date, channel_id)
+);
+CREATE TABLE IF NOT EXISTS expense_categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
+CREATE TABLE IF NOT EXISTS expense_templates (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, category_id INTEGER NOT NULL REFERENCES expense_categories(id),
+  amount INTEGER NOT NULL, due_day INTEGER NOT NULL DEFAULT 1, start_period TEXT NOT NULL, end_period TEXT,
+  active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS expenses (
+  id INTEGER PRIMARY KEY, date TEXT NOT NULL, period TEXT NOT NULL, name TEXT NOT NULL,
+  category_id INTEGER NOT NULL REFERENCES expense_categories(id), amount INTEGER NOT NULL,
+  fixed INTEGER NOT NULL DEFAULT 0, supplier_id INTEGER REFERENCES suppliers(id), doc_no TEXT, due_date TEXT,
+  paid_at TEXT, paid_by INTEGER REFERENCES users(id), note TEXT, template_id INTEGER REFERENCES expense_templates(id),
+  created_by INTEGER REFERENCES users(id), created_at TEXT, UNIQUE(template_id, period)
+);
+CREATE TABLE IF NOT EXISTS waste (
+  id INTEGER PRIMARY KEY, date TEXT NOT NULL, item_id INTEGER NOT NULL REFERENCES stock_items(id), qty REAL NOT NULL,
+  kind TEXT NOT NULL, reason TEXT, note TEXT, unit_cost INTEGER, user_id INTEGER REFERENCES users(id), at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tickets (
+  id INTEGER PRIMARY KEY, date TEXT NOT NULL, at TEXT NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL, channel_id INTEGER REFERENCES payment_channels(id), treat_by INTEGER REFERENCES users(id),
+  note TEXT, total INTEGER NOT NULL DEFAULT 0, void_by INTEGER REFERENCES users(id), void_at TEXT, summary TEXT
+);
+CREATE INDEX IF NOT EXISTS tickets_date ON tickets(date);
+CREATE TABLE IF NOT EXISTS revenue_days (
+  date TEXT PRIMARY KEY, cash INTEGER NOT NULL DEFAULT 0, card INTEGER NOT NULL DEFAULT 0, note TEXT,
+  user_id INTEGER REFERENCES users(id), at TEXT
+);
+CREATE TABLE IF NOT EXISTS revenue_lump (period TEXT PRIMARY KEY, amount INTEGER NOT NULL, user_id INTEGER REFERENCES users(id), at TEXT);
+CREATE TABLE IF NOT EXISTS sup_purchases (
+  id INTEGER PRIMARY KEY, supplier_id INTEGER NOT NULL REFERENCES suppliers(id), date TEXT NOT NULL, period TEXT NOT NULL,
+  amount INTEGER NOT NULL, monthly INTEGER NOT NULL DEFAULT 0, doc_no TEXT, note TEXT, user_id INTEGER REFERENCES users(id), at TEXT
+);
+CREATE INDEX IF NOT EXISTS sup_purchases_period ON sup_purchases(period);
+CREATE TABLE IF NOT EXISTS sup_purchase_lines (
+  id INTEGER PRIMARY KEY, purchase_id INTEGER NOT NULL REFERENCES sup_purchases(id) ON DELETE CASCADE,
+  name TEXT NOT NULL, qty REAL NOT NULL, unit_price INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sup_payments (
+  id INTEGER PRIMARY KEY, supplier_id INTEGER NOT NULL REFERENCES suppliers(id), date TEXT NOT NULL, amount INTEGER NOT NULL,
+  note TEXT, user_id INTEGER REFERENCES users(id), at TEXT
+);
+CREATE TABLE IF NOT EXISTS item_prices (
+  id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES stock_items(id), price INTEGER NOT NULL,
+  prev_price INTEGER, purchase_id INTEGER REFERENCES purchases(id), at TEXT NOT NULL
+);
 `;
 
 export function hashPassword(pw: string): string {
@@ -219,6 +291,63 @@ function seed(d: DatabaseSync) {
   }
 }
 
+/** Sonradan eklenen modüller için tek seferlik veri adımları (PRAGMA user_version ile izlenir). */
+function migrate(d: DatabaseSync) {
+  const v = (d.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+  if (v < 1) {
+    // Finans modülü: sayım uyarı eşiği %5, mutlak tolerans, fiyat uyarı eşiği, örnek ürünler.
+    d.exec(`UPDATE settings SET value='5' WHERE key='count_tolerance_pct' AND value='10';
+      INSERT OR IGNORE INTO settings(key,value) VALUES('count_abs_tolerance','0'),('price_alert_pct','10');
+      ALTER TABLE stock_counts ADD COLUMN reason TEXT;`);
+    const ins = (sql: string, ...p: P[]) => Number(d.prepare(sql).run(...p).lastInsertRowid);
+    for (const c of ["Kira", "Personel ve yan giderler", "Elektrik, su, internet", "Ambalaj ve sarf", "Temizlik",
+      "Bakım ve onarım", "Etkinlik ve atölye", "Pazarlama ve içerik", "Ekipman ve yatırım", "Komisyon ve banka", "Diğer"])
+      ins("INSERT OR IGNORE INTO expense_categories(name) VALUES(?)", c);
+    // Komisyon oranı sözleşmeye göre Finans ekranından girilmelidir.
+    ins("INSERT INTO payment_channels(name) VALUES('Nakit')");
+    ins("INSERT INTO payment_channels(name) VALUES('Kart (POS)')");
+    // Örnek ürünler ve reçeteler: fiyat, vergi oranı ve miktarlar gerçek değildir.
+    const item = (name: string) => (d.prepare("SELECT id FROM stock_items WHERE name=?").get(name) as { id: number } | undefined)?.id;
+    const samples: [string, string, number, [string, number][]][] = [
+      ["Espresso (örnek)", "Kahve", 9000, [["Espresso çekirdeği", 0.018]]],
+      ["Latte (örnek)", "Kahve", 13000, [["Espresso çekirdeği", 0.018], ["Süt", 0.2], ["Bardak 12 oz", 1], ["Bardak kapağı", 1]]],
+      ["Kurabiye (örnek)", "Mutfak", 8000, [["Un", 0.05], ["Tereyağı", 0.03], ["Yumurta", 0.25]]],
+    ];
+    for (const [name, cat, price, rec] of samples) {
+      const pid = ins("INSERT INTO products(name,category,price,tax_rate) VALUES(?,?,?,10)", name, cat, price);
+      for (const [iname, qty] of rec) {
+        const iid = item(iname);
+        if (iid) ins("INSERT INTO recipe_items(product_id,item_id,qty) VALUES(?,?,?)", pid, iid, qty);
+      }
+    }
+    d.exec("PRAGMA user_version = 1");
+  }
+  if (v < 2) {
+    // Kasa: fişe bağlı satış satırları stoğu anında düşer (consumed=1).
+    d.exec(`ALTER TABLE sale_lines ADD COLUMN ticket_id INTEGER REFERENCES tickets(id);
+      ALTER TABLE sale_lines ADD COLUMN consumed INTEGER NOT NULL DEFAULT 0;
+      UPDATE sale_lines SET consumed=1 WHERE kind='duzeltme' OR date IN (SELECT date FROM sales_days WHERE status='onayli');
+      PRAGMA user_version = 2;`);
+  }
+  if (v < 3) {
+    // Kart komisyonu: daha önce ödeme kanalına girilmiş oran varsa onu devral.
+    d.exec(`INSERT OR IGNORE INTO settings(key,value) VALUES('card_commission_pct', COALESCE((SELECT CAST(MAX(commission_pct) AS TEXT) FROM payment_channels), '0'));
+      PRAGMA user_version = 3;`);
+  }
+}
+
+/** .env.local içinde parolası tanımlı hesapları (yoksa) oluşturur; var olan hesaba dokunmaz. */
+function ensureEnvUsers(d: DatabaseSync) {
+  for (const [username, name, role, env] of [
+    ["admin", "Yönetici", "sahip", "ADMIN_PASSWORD"],
+    ["personel", "Personel", "calisan", "PERSONEL_PASSWORD"],
+  ]) {
+    const pw = process.env[env];
+    if (!pw || d.prepare("SELECT 1 FROM users WHERE username=?").get(username)) continue;
+    d.prepare("INSERT INTO users(name,username,password_hash,role) VALUES(?,?,?,?)").run(name, username, hashPassword(pw), role);
+  }
+}
+
 export function db(): DatabaseSync {
   if (!g.__fampaniDb) {
     const dir = path.join(process.cwd(), "data");
@@ -229,6 +358,8 @@ export function db(): DatabaseSync {
     d.exec("BEGIN");
     try {
       seed(d);
+      ensureEnvUsers(d);
+      migrate(d);
       d.exec("COMMIT");
     } catch (e) {
       d.exec("ROLLBACK");
@@ -240,10 +371,12 @@ export function db(): DatabaseSync {
 }
 
 export function all<T>(sql: string, ...p: P[]): T[] {
-  return db().prepare(sql).all(...p) as T[];
+  // node:sqlite satırları null prototipli döner; istemci bileşenlerine geçebilsin diye düz nesneye çevrilir.
+  return db().prepare(sql).all(...p).map((r) => ({ ...r })) as T[];
 }
 export function get<T>(sql: string, ...p: P[]): T | undefined {
-  return db().prepare(sql).get(...p) as T | undefined;
+  const r = db().prepare(sql).get(...p);
+  return r ? ({ ...r } as T) : undefined;
 }
 export function run(sql: string, ...p: P[]): number {
   return Number(db().prepare(sql).run(...p).lastInsertRowid);
@@ -275,4 +408,31 @@ export function ensureDay(date: string) {
      SELECT ?, text, kind, area_id, id, ? FROM checklist_items WHERE active=1`,
     date, new Date().toISOString(),
   );
+}
+
+/** Stok miktarını yalnızca hareket kaydıyla değiştirir. */
+export function stockMove(itemId: number, delta: number, reason: string, ref: string | null, note: string | null, userId: number) {
+  run("UPDATE stock_items SET qty = qty + ? WHERE id=?", delta, itemId);
+  const after = get<{ qty: number }>("SELECT qty FROM stock_items WHERE id=?", itemId)!.qty;
+  run("INSERT INTO stock_movements(item_id,delta,qty_after,reason,ref,note,user_id,at) VALUES(?,?,?,?,?,?,?,?)",
+    itemId, delta, after, reason, ref, note, userId, new Date().toISOString());
+}
+
+/** Sabit gider şablonlarından içinde bulunulan aya kadar eksik dönem kayıtlarını üretir. */
+export function ensureRecurring() {
+  const cur = todayStr().slice(0, 7);
+  const tpl = all<{ id: number; name: string; category_id: number; amount: number; due_day: number; start_period: string; end_period: string | null }>(
+    "SELECT * FROM expense_templates WHERE active=1");
+  for (const t of tpl) {
+    let [y, m] = t.start_period.split("-").map(Number);
+    for (let i = 0; i < 60; i++) {
+      const period = `${y}-${String(m).padStart(2, "0")}`;
+      if (period > cur || (t.end_period && period > t.end_period)) break;
+      const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const due = `${period}-${String(Math.min(t.due_day, last)).padStart(2, "0")}`;
+      run(`INSERT OR IGNORE INTO expenses(date,period,name,category_id,amount,fixed,due_date,template_id,created_at)
+           VALUES(?,?,?,?,?,1,?,?,?)`, due, period, t.name, t.category_id, t.amount, due, t.id, new Date().toISOString());
+      if (++m > 12) { m = 1; y++; }
+    }
+  }
 }

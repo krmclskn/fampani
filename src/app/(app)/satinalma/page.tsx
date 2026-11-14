@@ -32,7 +32,7 @@ function Card({ p, u, suppliers }: { p: PV; u: User; suppliers: { id: number; na
           <p className="muted">
             {p.requester} {fmtQty(p.qty_requested)} {p.unit} istedi, {fmtDateTime(p.requested_at)}{p.note ? ` · “${p.note}”` : ""}
           </p>
-          {p.supplier && (
+          {p.supplier && can.seePrices(u) && (
             <p className="mt-1 text-sm">
               {p.supplier} · {fmtQty(p.qty_order)} {p.unit} × {fmtTL(p.unit_price)} = <b>{fmtTL(total)}</b>
               {p.reviewer && <span className="text-muted"> · hazırlayan {p.reviewer}</span>}
@@ -44,7 +44,7 @@ function Card({ p, u, suppliers }: { p: PV; u: User; suppliers: { id: number; na
           {p.received_at && (
             <p className="text-sm text-muted">
               Teslim: {p.receiver}, {fmtDateTime(p.received_at)} · gelen {fmtQty(p.qty_received)}, hasarlı {fmtQty(p.qty_damaged)}
-              {p.doc_no ? ` · belge ${p.doc_no}` : ""} · fatura {fmtTL(p.invoice_amount)}{p.receive_note ? ` · ${p.receive_note}` : ""}
+              {p.doc_no ? ` · belge ${p.doc_no}` : ""}{can.seePrices(u) ? ` · fatura ${fmtTL(p.invoice_amount)}` : ""}{p.receive_note ? ` · ${p.receive_note}` : ""}
             </p>
           )}
         </div>

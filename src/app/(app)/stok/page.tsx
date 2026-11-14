@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { Submit } from "@/components/client";
 import { countDecide, itemSave, shortageReport, stockCount, supplierSave } from "@/lib/actions";
+import { wasteRecord } from "@/lib/finance-actions";
 import { can, requireUser } from "@/lib/auth";
 import { all } from "@/lib/db";
 import { level, stockItems, type ItemV } from "@/lib/queries";
-import { LOCATIONS, UNITS, fmtDateTime, fmtQty, fmtTL } from "@/lib/util";
+import { COUNT_REASONS, LOCATIONS, UNITS, WASTE_KINDS, WASTE_REASONS, fmtDateTime, fmtQty, fmtTL } from "@/lib/util";
 
 function ItemForm({ i, suppliers }: { i?: ItemV; suppliers: { id: number; name: string }[] }) {
   const p = i ? `e${i.id}` : "new";
@@ -34,7 +35,7 @@ export default async function Stok() {
   const items = stockItems();
   const suppliers = all<{ id: number; name: string; delivery_days: string | null; payment_terms: string | null }>("SELECT * FROM suppliers ORDER BY name");
   const pending = can.approveCount(u)
-    ? all<{ id: number; name: string; unit: string; previous: number; counted: number; note: string | null; by: string; counted_at: string }>(
+    ? all<{ id: number; name: string; unit: string; previous: number; counted: number; note: string | null; reason: string | null; by: string; counted_at: string }>(
         `SELECT c.*, i.name, i.unit, us.name AS by FROM stock_counts c JOIN stock_items i ON i.id=c.item_id JOIN users us ON us.id=c.counted_by
          WHERE c.status='onay_bekliyor' ORDER BY c.id`)
     : [];
@@ -45,6 +46,7 @@ export default async function Stok() {
     <div className="grid gap-4">
       <div>
         <h1 className="h1">Stok</h1>
+        <p className="muted">Kayıtlı miktar = teslim alınan girişler − fire/ikram ± onaylı sayım düzeltmeleri. Sayım bu miktarla karşılaştırılır.</p>
         <p className="muted">
           {crit} kritik, {low} minimum altında kalem. Bir kalemi açıp sayım girebilir veya eksik bildirebilirsin.
         </p>
@@ -59,7 +61,7 @@ export default async function Stok() {
                 <span>
                   <b>{c.name}</b>: kayıt {fmtQty(c.previous)} → sayım {fmtQty(c.counted)} {c.unit}{" "}
                   <span className="text-bad">({c.counted - c.previous > 0 ? "+" : ""}{fmtQty(c.counted - c.previous)})</span>
-                  <span className="muted block">{c.by}, {fmtDateTime(c.counted_at)} · {c.note}</span>
+                  <span className="muted block">{c.by}, {fmtDateTime(c.counted_at)} · {[c.reason, c.note].filter(Boolean).join(" · ")}</span>
                 </span>
                 <form action={countDecide} className="flex gap-2">
                   <input type="hidden" name="id" value={c.id} />
@@ -91,14 +93,18 @@ export default async function Stok() {
                     </summary>
                     <div className="mt-2 grid gap-3 rounded-lg bg-bg p-3">
                       <p className="muted">
-                        Minimum {fmtQty(i.min_level)} · kritik {fmtQty(i.critical_level)} {i.unit} · tedarikçi: {i.supplier ?? "–"} · son alış: {fmtTL(i.last_price)}
+                        Minimum {fmtQty(i.min_level)} · kritik {fmtQty(i.critical_level)} {i.unit} · tedarikçi: {i.supplier ?? "–"}{can.seePrices(u) ? ` · son alış: ${fmtTL(i.last_price)}` : ""}
                       </p>
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-3 sm:grid-cols-3">
                         <form action={stockCount} className="grid content-start gap-2">
                           <input type="hidden" name="item_id" value={i.id} />
                           <label className="label" htmlFor={`c${i.id}`}>Sayım: fiziksel miktar ({i.unit})</label>
                           <input id={`c${i.id}`} name="counted" inputMode="decimal" className="input" required />
-                          <input name="note" className="input" placeholder="Fark varsa nedeni" aria-label="Fark nedeni" />
+                          <select name="reason" className="input" defaultValue="" aria-label="Fark nedeni">
+                            <option value="">Fark yok / neden seçin</option>
+                            {COUNT_REASONS.map((r) => <option key={r}>{r}</option>)}
+                          </select>
+                          <input name="note" className="input" placeholder="Açıklama (isteğe bağlı)" aria-label="Açıklama" />
                           <Submit className="btn btn-sm">Sayımı kaydet</Submit>
                         </form>
                         <form action={shortageReport} className="grid content-start gap-2">
@@ -108,6 +114,17 @@ export default async function Stok() {
                           <input name="note" className="input" placeholder="Not (isteğe bağlı)" aria-label="Not" />
                           {i.open_purchase && <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="force" className="size-4" /> Açık talep var, yine de yeni talep aç</label>}
                           <Submit className="btn btn-sm">Eksik bildir</Submit>
+                        </form>
+                        <form action={wasteRecord} className="grid content-start gap-2">
+                          <input type="hidden" name="item_id" value={i.id} />
+                          <label className="label" htmlFor={`w${i.id}`}>Fire / ikram / iç kullanım ({i.unit})</label>
+                          <input id={`w${i.id}`} name="qty" inputMode="decimal" className="input" required />
+                          <select name="kind" className="input" aria-label="Tür">{Object.entries(WASTE_KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+                          <select name="reason" className="input" defaultValue="" aria-label="Fire nedeni">
+                            <option value="">Fire nedeni (fire için zorunlu)</option>
+                            {WASTE_REASONS.map((r) => <option key={r}>{r}</option>)}
+                          </select>
+                          <Submit className="btn btn-sm">Stoktan düş</Submit>
                         </form>
                       </div>
                       {can.editStock(u) && (
