@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "fampani",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": ["PATH=/Users/keremcaliskan/.local/node/bin:/usr/bin:/bin:/usr/sbin:/sbin", "npm", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}

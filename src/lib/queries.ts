@@ -1,0 +1,45 @@
+import { all } from "./db";
+
+export type TaskV = {
+  id: number; date: string; title: string; detail: string | null; kind: string; status: string; priority: string;
+  needs_review: number; exception_reason: string | null; note: string | null; assignee_id: number | null;
+  assignee_role: string | null; done_by: number | null; done_at: string | null; area: string | null;
+  assignee: string | null; done_name: string | null; area_id: number | null;
+};
+
+const BASE = `SELECT t.*, a.name AS area, au.name AS assignee, du.name AS done_name
+  FROM tasks t LEFT JOIN areas a ON a.id=t.area_id LEFT JOIN users au ON au.id=t.assignee_id
+  LEFT JOIN users du ON du.id=t.done_by`;
+
+export const tasksWhere = (where: string, ...p: (string | number | null)[]) =>
+  all<TaskV>(`${BASE} WHERE ${where} ORDER BY (t.priority='yuksek') DESC, t.area_id, t.id`, ...p);
+
+export type Area = { id: number; name: string; needs_cover: number };
+export const areas = () => all<Area>("SELECT * FROM areas ORDER BY id");
+export const activeUsers = () =>
+  all<{ id: number; name: string; role: string }>("SELECT id,name,role FROM users WHERE active=1 ORDER BY name");
+
+export type ItemV = {
+  id: number; name: string; category: string | null; unit: string; location: string; qty: number; min_level: number;
+  critical_level: number; supplier_id: number | null; supplier: string | null; last_price: number | null; open_purchase: number | null;
+};
+export const stockItems = () =>
+  all<ItemV>(`SELECT i.*, s.name AS supplier,
+    (SELECT id FROM purchases p WHERE p.item_id=i.id AND p.status IN ('talep','onay_bekliyor','onaylandi','siparis') LIMIT 1) AS open_purchase
+    FROM stock_items i LEFT JOIN suppliers s ON s.id=i.supplier_id WHERE i.active=1 ORDER BY i.location, i.name`);
+
+export const level = (i: { qty: number; min_level: number; critical_level: number }) =>
+  i.qty <= i.critical_level ? "kritik" : i.qty <= i.min_level ? "dusuk" : "ok";
+
+/** Açılış–kapanış arasında kapsanmayan saat aralıkları. */
+export function gaps(shifts: { start: string; end: string }[], open: string, close: string): string[] {
+  const out: string[] = [];
+  let cur = open;
+  for (const s of [...shifts].sort((a, b) => a.start.localeCompare(b.start))) {
+    if (s.start > cur) out.push(`${cur}–${s.start < close ? s.start : close}`);
+    if (s.end > cur) cur = s.end;
+    if (cur >= close) break;
+  }
+  if (cur < close) out.push(`${cur}–${close}`);
+  return out;
+}

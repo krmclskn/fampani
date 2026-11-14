@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Fampani · MekanSAL pilotu
 
-## Getting Started
+MekanSAL işletim planının ilk hattı: **günlük vardiya → stok talebi → satın alma → teslim alma → kapanış**.
 
-First, run the development server:
+## Çalıştırma
+
+Node.js bu makinede `~/.local/node` altına kuruludur ve PATH'e eklenmemiştir.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+export PATH="$HOME/.local/node/bin:$PATH"
+npm run dev        # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Üretim için `npm run build && npm run start`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## İlk giriş
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Veritabanı (`data/fampani.db`, SQLite) ilk açılışta oluşur ve örnek veriyle doldurulur.
+Örnek kullanıcılar: `sahip`, `operasyon`, `sef`, `stok`, `bar`, `calisan1`, `calisan2`, `mutfak1`.
+Hepsinin başlangıç parolası `.env.local` içindeki `SEED_PASSWORD` değeridir. Gerçek kullanımdan önce
+Ayarlar → Kişiler ekranından gerçek kişileri açın, örnek hesapları pasifleştirin ve parolaları değiştirin.
 
-## Learn More
+Örnek stok kartları, tedarikçiler, miktarlar, fiyatlar ve vardiyalar **gerçek değildir**; saha verisiyle değiştirilmelidir.
+Sıfırdan başlamak için sunucuyu durdurup `data/` klasörünü silin.
 
-To learn more about Next.js, take a look at the following resources:
+## Kapsam
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Ekran | Ne yapar |
+|---|---|
+| Bugün | Vardiyam, işlerim, kontrol listesi ilerlemesi, bekleyen devir |
+| Kontrol listeleri | Alan bazlı açılış/kapanış; yapılamayan iş istisna nedeniyle kapanır ve sorumluya görev açar |
+| Görevler | Atama, öncelik, kontrol/onay, iptal; çalışan bildirimi operasyon sorumlusuna düşer |
+| Vardiya | 7 günlük plan, vardiya sorumlusu, bar/mutfak için kapsanmayan saat uyarısı |
+| Devir | Devreden kaydı oluşturur, devralan “teslim aldım” ile kapatır |
+| Stok | Stok kartı, sayım (tolerans üstü fark onaya gider), eksik bildirimi, tedarikçiler |
+| Satın alma | Talep → değerlendirme → onay (tutar limitli) → sipariş → teslim alma → ödeme |
+| Kapanış | Kapanış listesi tamamlanmadan kapatılamaz; nakit/POS kaydı; açık işler devreder |
+| Yönetim özeti | Günlük göstergeler ve kayıt geçmişi (sahip, operasyon) |
+| Ayarlar | Onay limiti, sayım toleransı, çalışma saatleri, kişiler ve roller |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Roller ve yetkiler `src/lib/auth.ts`, iş kuralları `src/lib/actions.ts`, şema ve örnek veri `src/lib/db.ts` içindedir.
 
-## Deploy on Vercel
+## Henüz yok
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Arıza/bakım akışı (şimdilik istisna → görev), etkinlik ve alan takvimi, eğitim/prosedür kartları, kontrol listesi
+şablonlarını arayüzden düzenleme, fotoğraf kanıtı, reçete/fire, POS entegrasyonu, fatura–ödeme ayrıntısı, içerik modülü,
+bildirim (push/e-posta), yedekleme.
