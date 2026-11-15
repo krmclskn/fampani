@@ -33,15 +33,17 @@ Yönetici (işletme sahibi, operasyon sorumlusu) girişte **Panel**'e düşer. F
 
 | Ekran | Ne yapar |
 |---|---|
-| Panel | Seçili ayın gelir tablosu (P&L) geçen ayla karşılaştırmalı; son 12 ay ciro/gider ve net kâr grafikleri; günlük ciro grafiği; tedarikçi borçları; bugünün cirosunu hızlı girme |
-| Ciro | Ay tablosunda gün gün nakit/kart girişi ya da geçmiş ay için tek rakamla aylık toplam; kart komisyon oranı |
-| Giderler | Sabit giderler (bir kez ekle, her ay gelsin; geçmiş aydan başlat; bu aydan itibaren çıkar) ve tek seferlik giderler |
-| Tedarikçiler | Tedarikçi başına alım (toplam tutar ya da ürün satırlarıyla), ödeme, aylık toplam alım ve borç bakiyesi |
+| Panel | Seçili ayın gelir tablosu geçen ayla karşılaştırmalı; ciro–gider ve net kâr grafikleri günlük/haftalık/aylık; kalemleri tuşlarla ekleyip çıkarma (her gider türü kendi renginde); bugünün cirosunu hızlı girme; borç özetleri |
+| Ciro | Ay tablosunda gün gün nakit/kart girişi ya da geçmiş ay için tek rakam; ciro KDV oranı ve kart komisyonu |
+| Giderler | Resmi / resmi olmayan giderler; tek formdan tek seferlik ya da her ay tekrarlayan gider (KDV oranıyla); maaş + SGK + elden ödeme girişi |
+| Tedarikçiler | Alım: fatura toplamı + KDV oranı ya da ürün ürün (satır başına KDV); ödeme (istenirse aynı anda gidere yazılır); aylık toplam; borç bakiyesi |
+| Borçlar | Vergi borçları ve diğer geçmiş borçlar; günlük basit faiz (aylık oran ÷ 30), ödemeler |
 
-Gelir tablosu = ciro − tedarikçi alımları − sabit ve diğer giderler − kart komisyonu. Tutarlar girildiği gibi (vergi dahil)
-hesaplanır; yönetim amaçlıdır, resmî tablo değildir.
+Gelir tablosu = ciro − tedarikçi alımları − resmi giderler (kart komisyonu dahil) − ödenecek KDV − resmi olmayan giderler.
+Tüm tutarlar KDV dahil girilir. Ödenecek KDV = cirodaki KDV − alım ve giderlerde ödenen KDV − önceki aydan devreden.
+Yönetim amaçlıdır; KDV, vergi ve gecikme zammı hesapları mali müşavirle doğrulanmalıdır.
 
-**Operasyon** menüsü altında günlük işler durur: Bugün, kontrol listeleri, görevler, vardiya, devir, stok, stok talepleri,
+**Operasyon** menüsü altında günlük işler durur: Bugün, kontrol listeleri (yönetici maddeleri, günlerini ve stok sayım görevlerini düzenler), görevler, vardiya, stok, stok talepleri,
 kapanış, operasyon özeti, ayarlar. Personel yalnızca bu menüyü görür.
 
 Kapalı modüller: kasa, ürün bazlı günlük satış ve ürün/reçete ekranları (`src/lib/util.ts` içinde `FEATURES.kasa`).
@@ -57,3 +59,6 @@ Excel çıktıları, toplantı notları, dosyalama, personelin alan bazlı gör�
 içerik modülü, bildirim (push/e-posta), yedekleme.
 
 Finans rakamları yönetim amaçlıdır; vergi oranları ürün kartında elle girilir ve mali müşavirle doğrulanmalıdır.
+
+Veritabanı yedeği: sunucu çalışırken veriler `data/fampani.db-wal` içinde durabilir; yedek almadan önce sunucuyu durdurun
+ya da üç dosyayı (`.db`, `.db-wal`, `.db-shm`) birlikte kopyalayın.

@@ -152,6 +152,14 @@ CREATE TABLE IF NOT EXISTS sup_payments (
   id INTEGER PRIMARY KEY, supplier_id INTEGER NOT NULL REFERENCES suppliers(id), date TEXT NOT NULL, amount INTEGER NOT NULL,
   note TEXT, user_id INTEGER REFERENCES users(id), at TEXT
 );
+CREATE TABLE IF NOT EXISTS debts (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, principal INTEGER NOT NULL, start_date TEXT NOT NULL,
+  monthly_rate REAL NOT NULL DEFAULT 0, note TEXT, user_id INTEGER REFERENCES users(id), at TEXT
+);
+CREATE TABLE IF NOT EXISTS debt_payments (
+  id INTEGER PRIMARY KEY, debt_id INTEGER NOT NULL REFERENCES debts(id), date TEXT NOT NULL, amount INTEGER NOT NULL,
+  note TEXT, user_id INTEGER REFERENCES users(id), at TEXT
+);
 CREATE TABLE IF NOT EXISTS item_prices (
   id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL REFERENCES stock_items(id), price INTEGER NOT NULL,
   prev_price INTEGER, purchase_id INTEGER REFERENCES purchases(id), at TEXT NOT NULL
@@ -334,6 +342,43 @@ function migrate(d: DatabaseSync) {
     d.exec(`INSERT OR IGNORE INTO settings(key,value) VALUES('card_commission_pct', COALESCE((SELECT CAST(MAX(commission_pct) AS TEXT) FROM payment_channels), '0'));
       PRAGMA user_version = 3;`);
   }
+  if (v < 4) {
+    // KDV, gider türleri (resmi / resmi olmayan), checklist günleri ve stok görevi.
+    d.exec(`ALTER TABLE expense_categories ADD COLUMN grp TEXT NOT NULL DEFAULT 'resmi';
+      ALTER TABLE expense_categories ADD COLUMN official INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE expenses ADD COLUMN vat INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE expense_templates ADD COLUMN vat_rate REAL NOT NULL DEFAULT 0;
+      ALTER TABLE sup_purchases ADD COLUMN vat INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sup_purchases ADD COLUMN vat_rate REAL;
+      ALTER TABLE sup_purchase_lines ADD COLUMN vat_rate REAL NOT NULL DEFAULT 0;
+      ALTER TABLE checklist_items ADD COLUMN days TEXT NOT NULL DEFAULT '1234567';
+      ALTER TABLE checklist_items ADD COLUMN stock_item_id INTEGER REFERENCES stock_items(id);
+      INSERT OR IGNORE INTO settings(key,value) VALUES('revenue_vat_pct','10'),('tax_debt_rate','3.7');
+      UPDATE expense_categories SET grp='kira' WHERE name='Kira';
+      UPDATE expense_categories SET name='Maaşlar (SGK''lı)', grp='maas' WHERE name='Personel ve yan giderler';
+      UPDATE expense_categories SET name='Elektrik, su, doğalgaz, internet' WHERE name='Elektrik, su, internet';
+      UPDATE expense_categories SET name='Banka ve POS komisyonu' WHERE name='Komisyon ve banka';
+      UPDATE expense_categories SET name='Diğer (faturalı)' WHERE name='Diğer';`);
+    const cat = d.prepare("INSERT OR IGNORE INTO expense_categories(name,grp,official) VALUES(?,?,?)");
+    for (const [n, g, o] of [["SGK primi", "sgk", 1], ["Bağkur", "sgk", 1], ["Gelir / kurumlar vergisi", "vergi", 1],
+      ["Stopaj ve diğer vergiler", "vergi", 1], ["Huzur hakkı", "resmi", 1], ["Muhasebe ve danışmanlık", "resmi", 1],
+      ["SGK'sız maaş", "gayri", 0], ["Part-time maaş", "gayri", 0], ["Faturasız ödeme", "gayri", 0]] as [string, string, number][]) cat.run(n, g, o);
+    // Maaş kategorisine girilmiş sigorta/SGK kayıtlarını SGK türüne taşı.
+    d.exec(`UPDATE expenses SET category_id=(SELECT id FROM expense_categories WHERE name='SGK primi')
+        WHERE (lower(name) LIKE '%sigorta%' OR lower(name) LIKE '%sgk%') AND category_id=(SELECT id FROM expense_categories WHERE grp='maas');
+      UPDATE expense_templates SET category_id=(SELECT id FROM expense_categories WHERE name='SGK primi')
+        WHERE (lower(name) LIKE '%sigorta%' OR lower(name) LIKE '%sgk%') AND category_id=(SELECT id FROM expense_categories WHERE grp='maas');`);
+    // "X" ve "X-kdv" olarak ayrı girilmiş sabit giderleri tek kayıtta (KDV dahil tutar + oran) birleştir.
+    const pairs = d.prepare(`SELECT a.id AS base, b.id AS kdv, a.amount AS ba, b.amount AS ka FROM expense_templates a JOIN expense_templates b
+      ON b.id<>a.id AND (lower(b.name)=lower(a.name)||'-kdv' OR lower(b.name)=lower(a.name)||' kdv') AND b.start_period=a.start_period`).all() as { base: number; kdv: number; ba: number; ka: number }[];
+    for (const p of pairs) {
+      d.prepare("UPDATE expenses SET amount=amount+COALESCE((SELECT k.amount FROM expenses k WHERE k.template_id=? AND k.period=expenses.period),0), vat=COALESCE((SELECT k.amount FROM expenses k WHERE k.template_id=? AND k.period=expenses.period),0) WHERE template_id=?").run(p.kdv, p.kdv, p.base);
+      d.prepare("DELETE FROM expenses WHERE template_id=?").run(p.kdv);
+      d.prepare("DELETE FROM expense_templates WHERE id=?").run(p.kdv);
+      d.prepare("UPDATE expense_templates SET amount=?, vat_rate=? WHERE id=?").run(p.ba + p.ka, Math.round((p.ka / p.ba) * 10000) / 100, p.base);
+    }
+    d.exec("PRAGMA user_version = 4");
+  }
 }
 
 /** .env.local içinde parolası tanımlı hesapları (yoksa) oluşturur; var olan hesaba dokunmaz. */
@@ -403,10 +448,11 @@ export function audit(userId: number | null, action: string, entity?: string, en
 
 /** O günün açılış/kapanış kontrol listesi görevlerini şablondan üretir (tekrar çağrılabilir). */
 export function ensureDay(date: string) {
+  const wd = String(((new Date(date + "T00:00:00Z").getUTCDay() + 6) % 7) + 1); // 1=Pzt … 7=Paz
   run(
     `INSERT OR IGNORE INTO tasks(date,title,kind,area_id,checklist_item_id,created_at)
-     SELECT ?, text, kind, area_id, id, ? FROM checklist_items WHERE active=1`,
-    date, new Date().toISOString(),
+     SELECT ?, text, kind, area_id, id, ? FROM checklist_items WHERE active=1 AND instr(days, ?)>0`,
+    date, new Date().toISOString(), wd,
   );
 }
 
@@ -421,7 +467,7 @@ export function stockMove(itemId: number, delta: number, reason: string, ref: st
 /** Sabit gider şablonlarından içinde bulunulan aya kadar eksik dönem kayıtlarını üretir. */
 export function ensureRecurring() {
   const cur = todayStr().slice(0, 7);
-  const tpl = all<{ id: number; name: string; category_id: number; amount: number; due_day: number; start_period: string; end_period: string | null }>(
+  const tpl = all<{ id: number; name: string; category_id: number; amount: number; due_day: number; start_period: string; end_period: string | null; vat_rate: number }>(
     "SELECT * FROM expense_templates WHERE active=1");
   for (const t of tpl) {
     let [y, m] = t.start_period.split("-").map(Number);
@@ -430,8 +476,9 @@ export function ensureRecurring() {
       if (period > cur || (t.end_period && period > t.end_period)) break;
       const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
       const due = `${period}-${String(Math.min(t.due_day, last)).padStart(2, "0")}`;
-      run(`INSERT OR IGNORE INTO expenses(date,period,name,category_id,amount,fixed,due_date,template_id,created_at)
-           VALUES(?,?,?,?,?,1,?,?,?)`, due, period, t.name, t.category_id, t.amount, due, t.id, new Date().toISOString());
+      run(`INSERT OR IGNORE INTO expenses(date,period,name,category_id,amount,vat,fixed,due_date,template_id,created_at)
+           VALUES(?,?,?,?,?,?,1,?,?,?)`, due, period, t.name, t.category_id, t.amount,
+        Math.round((t.amount * t.vat_rate) / (100 + t.vat_rate)), due, t.id, new Date().toISOString());
       if (++m > 12) { m = 1; y++; }
     }
   }

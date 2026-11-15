@@ -16,9 +16,6 @@ export default async function Bugun() {
     `SELECT t.kind, a.name AS area, COUNT(*) AS total, SUM(t.status IN ('tamamlandi','kontrol')) AS done, SUM(t.status='engellendi') AS blocked
      FROM tasks t JOIN areas a ON a.id=t.area_id WHERE t.date=? AND t.kind<>'is' GROUP BY t.kind, t.area_id ORDER BY t.kind, t.area_id`, today);
   const mine = tasksWhere("t.kind='is' AND t.status='atandi' AND (t.assignee_id=? OR t.assignee_role=?)", u.id, u.role);
-  const handovers = all<{ id: number; area: string; name: string; created_at: string }>(
-    `SELECT h.id, a.name AS area, us.name, h.created_at FROM handovers h JOIN areas a ON a.id=h.area_id JOIN users us ON us.id=h.from_user
-     WHERE h.accepted_at IS NULL AND h.from_user<>?`, u.id);
 
   return (
     <div className="grid gap-5">
@@ -32,22 +29,10 @@ export default async function Bugun() {
         </p>
       </div>
 
-      {handovers.length > 0 && (
-        <section className="card border-[#f0d6a8] bg-[#fdf6e7]">
-          <h2 className="h2">Teslim alınmayı bekleyen devir</h2>
-          <ul className="mt-2 grid gap-1 text-sm">
-            {handovers.map((h) => (
-              <li key={h.id}>{h.area} · {h.name}, {fmtDateTime(h.created_at)}</li>
-            ))}
-          </ul>
-          <Link href="/devir" className="btn btn-sm mt-3">Devri incele ve teslim al</Link>
-        </section>
-      )}
-
-      <section className="grid gap-3 sm:grid-cols-2">
-        {(["acilis", "kapanis"] as const).map((k) => (
+      <section className="grid gap-3 sm:grid-cols-3">
+        {(["acilis", "gunici", "kapanis"] as const).filter((k) => k !== "gunici" || lists.some((l) => l.kind === k)).map((k) => (
           <Link key={k} href={`/kontrol?tur=${k}`} className="card block hover:border-accent">
-            <h2 className="h2">{k === "acilis" ? "Açılış kontrol listeleri" : "Kapanış kontrol listeleri"}</h2>
+            <h2 className="h2">{k === "acilis" ? "Açılış listesi" : k === "gunici" ? "Gün içi işler" : "Kapanış listesi"}</h2>
             <ul className="mt-2 grid gap-1.5 text-sm">
               {lists.filter((l) => l.kind === k).map((l) => (
                 <li key={l.area} className="flex items-center justify-between gap-2">
@@ -78,7 +63,6 @@ export default async function Bugun() {
       <section className="flex flex-wrap gap-2">
         <Link href="/stok" className="btn">Eksik bildir / stok say</Link>
         <Link href="/gorevler#yeni" className="btn">Sorun bildir</Link>
-        <Link href="/devir" className="btn">Vardiya devret</Link>
       </section>
     </div>
   );

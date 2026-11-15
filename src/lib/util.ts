@@ -92,3 +92,19 @@ export function shiftPeriod(p: string, d: number) {
 export const periodLabel = (p: string) => `${AYLAR[Number(p.slice(5)) - 1]} ${p.slice(0, 4)}`;
 export const periodShort = (p: string) => `${AYLAR[Number(p.slice(5)) - 1].slice(0, 3)} ${p.slice(2, 4)}`;
 export const daysIn = (p: string) => { const [y, m] = p.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).getUTCDate(); };
+
+/** Gider türleri: grafikte ve tabloda her biri kendi rengiyle görünür (sıra sabittir). */
+export const GROUPS = [
+  { key: "tedarik", label: "Tedarikçiler", color: "#2a78d6" },
+  { key: "kira", label: "Kira", color: "#eb6834" },
+  { key: "maas", label: "Maaşlar", color: "#1baf7a" },
+  { key: "sgk", label: "SGK / Bağkur", color: "#eda100" },
+  { key: "vergi", label: "Vergiler", color: "#e87ba4" },
+  { key: "kdv", label: "Ödenecek KDV", color: "#008300" },
+  { key: "resmi", label: "Diğer resmi giderler", color: "#6250d6" },
+  { key: "gayri", label: "Resmi olmayan", color: "#e34948" },
+] as const;
+export type GroupKey = (typeof GROUPS)[number]["key"];
+export const VAT_RATES = [0, 1, 10, 20];
+/** KDV dahil tutarın içindeki KDV. */
+export const vatOf = (gross: number, rate: number) => Math.round((gross * rate) / (100 + rate));

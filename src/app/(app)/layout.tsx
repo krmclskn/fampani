@@ -8,19 +8,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const u = await requireUser();
   const c = (sql: string, ...p: (string | number)[]) => get<{ c: number }>(sql, ...p)?.c ?? 0;
   const myTasks = c("SELECT COUNT(*) AS c FROM tasks WHERE kind='is' AND status='atandi' AND (assignee_id=? OR assignee_role=?)", u.id, u.role);
-  const handovers = c("SELECT COUNT(*) AS c FROM handovers WHERE accepted_at IS NULL AND from_user<>?", u.id);
   const purchases = can.reviewPurchase(u)
     ? c("SELECT COUNT(*) AS c FROM purchases WHERE status IN ('talep','onay_bekliyor','onaylandi')")
     : 0;
   const main = can.seeFinance(u)
-    ? [{ href: "/finans", label: "Panel" }, { href: "/ciro", label: "Ciro" }, { href: "/giderler", label: "Giderler" }, { href: "/tedarikciler", label: "Tedarikçiler" }]
+    ? [{ href: "/finans", label: "Panel" }, { href: "/ciro", label: "Ciro" }, { href: "/giderler", label: "Giderler" }, { href: "/tedarikciler", label: "Tedarikçiler" }, { href: "/borclar", label: "Borçlar" }]
     : [];
   const ops = [
     { href: "/", label: "Bugün" },
     { href: "/kontrol", label: "Kontrol listeleri" },
     { href: "/gorevler", label: "Görevler", count: myTasks },
     { href: "/vardiya", label: "Vardiya" },
-    { href: "/devir", label: "Devir", count: handovers },
     { href: "/stok", label: "Stok" },
     { href: "/satinalma", label: "Stok talepleri", count: purchases },
     { href: "/kapanis", label: "Kapanış" },

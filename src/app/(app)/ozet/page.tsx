@@ -26,7 +26,6 @@ export default async function Ozet() {
   const openTasks = c("SELECT COUNT(*) AS c FROM tasks WHERE kind='is' AND status='atandi'");
   const carried = c("SELECT COUNT(*) AS c FROM tasks WHERE kind='is' AND status='atandi' AND date<?", today);
   const review = c("SELECT COUNT(*) AS c FROM tasks WHERE status='kontrol'");
-  const handovers = c("SELECT COUNT(*) AS c FROM handovers WHERE accepted_at IS NULL");
   const closedToday = get("SELECT 1 FROM day_closings WHERE date=?", today);
   const closedYesterday = get("SELECT 1 FROM day_closings WHERE date=?", todayStr(-1));
   const items = stockItems();
@@ -65,7 +64,6 @@ export default async function Ozet() {
         <Stat label="Kontrol bekleyen iş" value={String(review)} tone={review ? "warn" : undefined} href="/gorevler" />
         <Stat label="Kritik stok" value={String(critical.length)} tone={critical.length ? "bad" : undefined} href="/stok" />
         <Stat label="Minimum altı stok" value={String(low.length)} tone={low.length ? "warn" : undefined} href="/stok" />
-        <Stat label="Bekleyen vardiya devri" value={String(handovers)} tone={handovers ? "warn" : undefined} href="/devir" />
         <Stat label="Geciken teslimat" value={String(late)} tone={late ? "bad" : undefined} href="/satinalma" />
       </section>
 

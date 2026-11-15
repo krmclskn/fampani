@@ -3,7 +3,7 @@ import { Submit } from "@/components/client";
 import { MonthNav } from "@/components/MonthNav";
 import { can, requireUser } from "@/lib/auth";
 import { setting, todayStr } from "@/lib/db";
-import { commissionSave, revenueMonth } from "@/lib/pl-actions";
+import { ratesSave, revenueMonth } from "@/lib/pl-actions";
 import { dailyRevenue, lumpOf } from "@/lib/pl";
 import { fmtTL, isPeriod, periodLabel, tlInput } from "@/lib/util";
 
@@ -64,12 +64,13 @@ export default async function Ciro({ searchParams }: { searchParams: Promise<{ a
         </section>
       </form>
 
-      <form action={commissionSave} className="card flex flex-wrap items-end gap-3">
-        <div className="mr-auto">
-          <h2 className="h2">Kart komisyonu</h2>
-          <p className="muted">Kart cirosundan bu oranda komisyon gider olarak düşülür. Bankayla sözleşmendeki oranı gir; bilmiyorsan 0 bırak.</p>
+      <form action={ratesSave} className="card flex flex-wrap items-end gap-3">
+        <div className="mr-auto max-w-md">
+          <h2 className="h2">Ciro oranları</h2>
+          <p className="muted">Ciro KDV dahil girilir. İçindeki KDV bu oranla ayrıştırılır ve alımlarda ödediğin KDV düşülerek “ödenecek KDV” gider olarak yazılır. Kart cirosundan komisyon da gider olarak düşülür.</p>
         </div>
-        <div><label className="label" htmlFor="pct">Oran (%)</label><input id="pct" name="pct" inputMode="decimal" className="input w-24" defaultValue={setting("card_commission_pct")} /></div>
+        <div><label className="label" htmlFor="vat">Ciro KDV oranı (%)</label><input id="vat" name="vat" inputMode="decimal" className="input w-24" defaultValue={setting("revenue_vat_pct")} /></div>
+        <div><label className="label" htmlFor="pct">Kart komisyonu (%)</label><input id="pct" name="pct" inputMode="decimal" className="input w-24" defaultValue={setting("card_commission_pct")} /></div>
         <Submit className="btn">Kaydet</Submit>
       </form>
     </div>

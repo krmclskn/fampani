@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { TaskRow } from "@/components/TaskRow";
-import { requireUser } from "@/lib/auth";
+import { can, requireUser } from "@/lib/auth";
 import { ensureDay, todayStr } from "@/lib/db";
 import { tasksWhere } from "@/lib/queries";
 import { fmtDate } from "@/lib/util";
 
 export default async function Kontrol({ searchParams }: { searchParams: Promise<{ tur?: string }> }) {
   const u = await requireUser();
-  const tur = (await searchParams).tur === "kapanis" ? "kapanis" : "acilis";
+  const t = (await searchParams).tur;
+  const tur = t === "kapanis" || t === "gunici" ? t : "acilis";
   const today = todayStr();
   ensureDay(today);
   const tasks = tasksWhere("t.date=? AND t.kind=?", today, tur);
@@ -20,13 +21,15 @@ export default async function Kontrol({ searchParams }: { searchParams: Promise<
         <h1 className="h1">Kontrol listeleri</h1>
         <p className="muted">{fmtDate(today)} · Yapılamayan iş “tamamlandı” işaretlenmez; nedeniyle kapatılır.</p>
       </div>
-      <div className="flex gap-2">
-        {(["acilis", "kapanis"] as const).map((k) => (
+      <div className="flex flex-wrap gap-2">
+        {(["acilis", "gunici", "kapanis"] as const).map((k) => (
           <Link key={k} href={`/kontrol?tur=${k}`} className={`btn ${tur === k ? "btn-primary" : ""}`} aria-current={tur === k ? "page" : undefined}>
-            {k === "acilis" ? "Açılış" : "Kapanış"}
+            {k === "acilis" ? "Açılış" : k === "gunici" ? "Gün içi" : "Kapanış"}
           </Link>
         ))}
+        {can.manage(u) && <Link href="/kontrol/duzenle" className="btn ml-auto">Listeyi düzenle</Link>}
       </div>
+      {!tasks.length && <p className="card muted">Bugün bu listede madde yok.</p>}
       {[...byArea].map(([area, list]) => {
         const closed = list.filter((t) => t.status !== "atandi").length;
         return (

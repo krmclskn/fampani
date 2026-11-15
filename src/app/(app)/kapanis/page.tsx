@@ -17,7 +17,6 @@ export default async function Kapanis() {
      FROM tasks t JOIN areas a ON a.id=t.area_id WHERE t.date=? AND t.kind='kapanis' GROUP BY t.area_id ORDER BY t.area_id`, today);
   const openChecks = lists.reduce((n, l) => n + l.open, 0);
   const carry = all<{ id: number; title: string; priority: string }>("SELECT id,title,priority FROM tasks WHERE kind='is' AND status='atandi' ORDER BY (priority='yuksek') DESC, id");
-  const handovers = get<{ c: number }>("SELECT COUNT(*) AS c FROM handovers WHERE accepted_at IS NULL")!.c;
   const critical = stockItems().filter((i) => level(i) === "kritik");
   const history = all<{ date: string; closed_at: string; name: string; cash_total: number; pos_total: number }>(
     "SELECT d.date,d.closed_at,d.cash_total,d.pos_total,us.name FROM day_closings d JOIN users us ON us.id=d.closed_by WHERE d.date<? ORDER BY d.date DESC LIMIT 7", today);
@@ -73,7 +72,6 @@ export default async function Kapanis() {
               {critical.map((i) => <li key={i.id}>{i.name}: {fmtQty(i.qty)} {i.unit} {i.open_purchase ? <span className="badge">Talep #{i.open_purchase}</span> : <span className="badge badge-bad">Talep yok</span>}</li>)}
             </ul>
           ) : <p className="muted mt-2">Kritik seviyede kalem yok.</p>}
-          {handovers > 0 && <p className="mt-3 text-sm text-warn">{handovers} vardiya devri teslim alınmayı bekliyor.</p>}
         </div>
       </section>
 

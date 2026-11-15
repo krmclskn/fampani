@@ -134,6 +134,70 @@ export async function taskCreate(f: FormData) {
   return ok(can.assignTasks(u) ? "Görev açıldı." : "Bildiriminiz operasyon sorumlusuna iletildi.");
 }
 
+/* ---------- Kontrol listesi yönetimi ---------- */
+
+const DAYS = "1234567";
+const pickDays = (f: FormData) => DAYS.split("").filter((d) => f.get(`d${d}`)).join("");
+
+export async function checkItemSave(f: FormData) {
+  const u = await requireUser();
+  if (!can.manage(u)) return fail("Kontrol listesini yönetici düzenler.");
+  const text = str(f.get("text")), kind = str(f.get("kind")) ?? "", areaId = id(f, "area_id"), days = pickDays(f);
+  const stockId = id(f, "stock_item_id") || null;
+  if (!text || !["acilis", "gunici", "kapanis"].includes(kind) || !areaId) return fail("Madde, liste ve alan zorunlu.");
+  if (!days) return fail("En az bir gün seçin.");
+  const cid = id(f);
+  if (cid) {
+    run("UPDATE checklist_items SET text=?, kind=?, area_id=?, days=?, stock_item_id=? WHERE id=?", text, kind, areaId, days, stockId, cid);
+    // Bugünün henüz yapılmamış görevini de güncelle; bugün listede değilse kaldır.
+    const wd = String(((new Date(todayStr() + "T00:00:00Z").getUTCDay() + 6) % 7) + 1);
+    if (days.includes(wd)) run("UPDATE tasks SET title=?, kind=?, area_id=? WHERE checklist_item_id=? AND date=? AND status='atandi'", text, kind, areaId, cid, todayStr());
+    else run("DELETE FROM tasks WHERE checklist_item_id=? AND date=? AND status='atandi'", cid, todayStr());
+    audit(u.id, "Kontrol listesi maddesini güncelledi", "checklist_item", cid, text);
+    return ok("Madde güncellendi.");
+  }
+  const pos = get<{ p: number }>("SELECT COALESCE(MAX(position),0)+1 AS p FROM checklist_items WHERE kind=? AND area_id=?", kind, areaId)!.p;
+  const nid = run("INSERT INTO checklist_items(kind,area_id,text,position,days,stock_item_id) VALUES(?,?,?,?,?,?)", kind, areaId, text, pos, days, stockId);
+  audit(u.id, "Kontrol listesine madde ekledi", "checklist_item", nid, text);
+  return ok("Madde eklendi; seçili günlerde personelin listesinde görünür.");
+}
+
+export async function checkItemRemove(f: FormData) {
+  const u = await requireUser();
+  if (!can.manage(u)) return fail("Kontrol listesini yönetici düzenler.");
+  const c = get<{ id: number; text: string }>("SELECT id,text FROM checklist_items WHERE id=?", id(f));
+  if (!c) return fail("Madde bulunamadı.");
+  tx(() => {
+    run("UPDATE checklist_items SET active=0 WHERE id=?", c.id);
+    run("DELETE FROM tasks WHERE checklist_item_id=? AND status='atandi' AND date>=?", c.id, todayStr());
+  });
+  audit(u.id, "Kontrol listesi maddesini kaldırdı", "checklist_item", c.id, c.text);
+  return ok("Madde listeden kaldırıldı; geçmiş kayıtları durur.");
+}
+
+/** Stok sayımı içeren kontrol maddesi: sayımı kaydeder ve görevi tamamlar. */
+export async function taskCount(f: FormData) {
+  const u = await requireUser();
+  const t = get<{ id: number; title: string; status: string; stock_item_id: number | null }>(
+    "SELECT t.id, t.title, t.status, c.stock_item_id FROM tasks t JOIN checklist_items c ON c.id=t.checklist_item_id WHERE t.id=?", id(f));
+  const counted = parseNum(f.get("counted"));
+  if (!t || t.status !== "atandi" || !t.stock_item_id) return fail("Sayım görevi bulunamadı.");
+  const it = getItem(t.stock_item_id);
+  if (!it) return fail("Stok kalemi bulunamadı.");
+  if (counted == null || counted < 0) return fail("Sayılan miktarı girin.");
+  const diff = counted - it.qty;
+  const tol = Math.max((Number(setting("count_tolerance_pct")) / 100) * Math.max(it.qty, 0), Number(setting("count_abs_tolerance")) || 0);
+  const direct = Math.abs(diff) <= tol || can.approveCount(u);
+  tx(() => {
+    const cid = run("INSERT INTO stock_counts(item_id,previous,counted,note,reason,status,counted_by,counted_at) VALUES(?,?,?,?,?,?,?,?)",
+      it.id, it.qty, counted, "Kontrol listesi sayımı", diff !== 0 ? "Sebep bilinmiyor" : null, direct ? "islendi" : "onay_bekliyor", u.id, now());
+    if (direct && diff !== 0) stockMove(it.id, diff, "sayim", `count:${cid}`, "Kontrol listesi sayımı", u.id);
+    run("UPDATE tasks SET status='tamamlandi', note=?, done_by=?, done_at=? WHERE id=?", `Sayım: ${counted} ${it.unit}`, u.id, now(), t.id);
+    audit(u.id, "Kontrol listesinden stok saydı", "stock_item", it.id, `${it.name}: ${it.qty} → ${counted} ${it.unit}${direct ? "" : " (onay bekliyor)"}`);
+  });
+  return ok(direct ? "Sayım kaydedildi." : "Sayım kaydedildi; fark büyük olduğu için yönetici onayına gitti.");
+}
+
 /* ---------- Vardiya ---------- */
 
 export async function shiftAdd(f: FormData) {

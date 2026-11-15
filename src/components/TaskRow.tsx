@@ -1,4 +1,4 @@
-import { taskBlock, taskCancel, taskDone, taskReopen, taskReview } from "@/lib/actions";
+import { taskBlock, taskCancel, taskCount, taskDone, taskReopen, taskReview } from "@/lib/actions";
 import { can, ROLE_LABEL, type Role, type User } from "@/lib/auth";
 import type { TaskV } from "@/lib/queries";
 import { EXCEPTION_REASONS, TASK_STATUS, fmtDateTime } from "@/lib/util";
@@ -19,6 +19,7 @@ export function TaskRow({ t, user, today }: { t: TaskV; user: User; today: strin
             {t.priority === "yuksek" && open && <span className="badge badge-bad">Yüksek öncelik</span>}
             {t.kind === "is" && t.date < today && open && <span className="badge badge-warn">Devreden</span>}
             {t.area && <span>{t.area}</span>}
+            {t.stock_name && <span className="badge">Stok sayımı: {t.stock_name}</span>}
             {t.kind === "is" && <span>→ {t.assignee ?? (t.assignee_role ? ROLE_LABEL[t.assignee_role as Role] : "Atanmamış")}</span>}
             {t.needs_review ? <span>Kontrol gerekir</span> : null}
             {t.done_name && <span>{t.done_name}, {fmtDateTime(t.done_at)}</span>}
@@ -28,12 +29,18 @@ export function TaskRow({ t, user, today }: { t: TaskV; user: User; today: strin
           {t.note && <p className="mt-1 text-sm text-muted">Not: {t.note}</p>}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {open && mine && (
+          {open && mine && (t.stock_item_id ? (
+            <form action={taskCount} className="flex items-center gap-2">
+              <input type="hidden" name="id" value={t.id} />
+              <input name="counted" inputMode="decimal" className="input w-28" placeholder={`Sayım (${t.stock_unit})`} aria-label={`${t.stock_name} sayılan miktar`} required />
+              <Submit className="btn btn-primary btn-sm">Sayımı kaydet</Submit>
+            </form>
+          ) : (
             <form action={taskDone}>
               <input type="hidden" name="id" value={t.id} />
               <Submit className="btn btn-primary btn-sm">Tamamla</Submit>
             </form>
-          )}
+          ))}
           {t.status === "kontrol" && can.reviewTasks(user) && t.done_by !== user.id && (
             <form action={taskReview} className="flex gap-2">
               <input type="hidden" name="id" value={t.id} />
