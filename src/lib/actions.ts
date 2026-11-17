@@ -18,7 +18,14 @@ export async function login(f: FormData) {
   const password = typeof f.get("password") === "string" ? (f.get("password") as string) : "";
   const a = attempts.get(username);
   if (a && a.until > Date.now()) redirect("/giris?hata=" + encodeURIComponent("Çok fazla deneme. Birkaç dakika sonra tekrar deneyin."));
-  const u = await get<{ id: number; password_hash: string }>("SELECT id,password_hash FROM users WHERE username=? AND active=1", username);
+  let u: { id: number; password_hash: string } | undefined;
+  try {
+    u = await get<{ id: number; password_hash: string }>("SELECT id,password_hash FROM users WHERE username=? AND active=1", username);
+  } catch (e) {
+    console.error("Giriş: veritabanına ulaşılamadı:", (e as Error).message);
+    const why = /DATABASE_URL/.test((e as Error).message) ? "sunucuda veritabanı adresi (DATABASE_URL) tanımlı değil" : "veritabanına bağlanılamadı";
+    redirect("/giris?hata=" + encodeURIComponent(`Giriş yapılamıyor: ${why}. Yöneticiye haber verin.`));
+  }
   if (!u || !verifyPassword(password, u.password_hash)) {
     const n = (a?.n ?? 0) + 1;
     attempts.set(username, { n: n >= 5 ? 0 : n, until: n >= 5 ? Date.now() + 5 * 60000 : 0 });

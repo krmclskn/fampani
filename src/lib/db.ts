@@ -39,6 +39,8 @@ async function connect(): Promise<Driver> {
       begin: <T,>(fn: (e: Exec) => Promise<T>) => sql.begin((t) => fn(wrap(t))) as Promise<T>,
     };
   }
+  // Sunucuda (Vercel) gömülü veritabanına düşülmez: adres tanımlı değilse açıkça hata ver.
+  if (process.env.VERCEL || process.env.NODE_ENV === "production") throw new Error("DATABASE_URL tanımlı değil");
   const { PGlite } = await import("@electric-sql/pglite");
   const dir = path.join(process.cwd(), "data", "pg");
   fs.mkdirSync(dir, { recursive: true });
