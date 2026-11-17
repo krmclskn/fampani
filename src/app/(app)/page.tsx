@@ -1,32 +1,24 @@
 import Link from "next/link";
 import { TaskRow } from "@/components/TaskRow";
 import { requireUser } from "@/lib/auth";
-import { all, ensureDay, get, todayStr } from "@/lib/db";
+import { all, ensureDay, todayStr } from "@/lib/db";
 import { tasksWhere } from "@/lib/queries";
-import { fmtDate, fmtDateTime } from "@/lib/util";
+import { fmtDate } from "@/lib/util";
 
 export default async function Bugun() {
   const u = await requireUser();
   const today = todayStr();
-  ensureDay(today);
-  const closed = get<{ closed_at: string }>("SELECT closed_at FROM day_closings WHERE date=?", today);
-  const shifts = all<{ start: string; end: string; area: string; is_lead: number }>(
-    "SELECT s.start,s.end,s.is_lead,a.name AS area FROM shifts s JOIN areas a ON a.id=s.area_id WHERE s.date=? AND s.user_id=? ORDER BY s.start", today, u.id);
-  const lists = all<{ kind: string; area: string; total: number; done: number; blocked: number }>(
-    `SELECT t.kind, a.name AS area, COUNT(*) AS total, SUM(t.status IN ('tamamlandi','kontrol')) AS done, SUM(t.status='engellendi') AS blocked
-     FROM tasks t JOIN areas a ON a.id=t.area_id WHERE t.date=? AND t.kind<>'is' GROUP BY t.kind, t.area_id ORDER BY t.kind, t.area_id`, today);
-  const mine = tasksWhere("t.kind='is' AND t.status='atandi' AND (t.assignee_id=? OR t.assignee_role=?)", u.id, u.role);
+  await ensureDay(today);
+  const lists = await all<{ kind: string; area: string; total: number; done: number; blocked: number }>(
+    `SELECT t.kind, a.name AS area, COUNT(*) AS total, SUM((t.status IN ('tamamlandi','kontrol'))::int) AS done, SUM((t.status='engellendi')::int) AS blocked
+     FROM tasks t JOIN areas a ON a.id=t.area_id WHERE t.date=? AND t.kind<>'is' GROUP BY t.kind, a.id, a.name ORDER BY t.kind, a.id`, today);
+  const mine = await tasksWhere("t.status='atandi' AND ((t.kind='is' AND (t.assignee_id=? OR t.assignee_role=?)) OR (t.kind<>'is' AND t.date=? AND t.assignee_id=?))", u.id, u.role, today, u.id);
 
   return (
     <div className="grid gap-5">
       <div>
         <h1 className="h1">{fmtDate(today)}</h1>
-        <p className="muted">
-          {closed ? `İşletme ${fmtDateTime(closed.closed_at)} itibarıyla kapandı.` : "İşletme açık."}{" "}
-          {shifts.length
-            ? "Vardiyan: " + shifts.map((s) => `${s.area} ${s.start}–${s.end}${s.is_lead ? " (sorumlu)" : ""}`).join(", ")
-            : "Bugün için planlı vardiyan yok."}
-        </p>
+        <p className="muted">Merhaba {u.name.split(" ")[0]}. Bugünkü listeler ve sana atanan işler aşağıda.</p>
       </div>
 
       <section className="grid gap-3 sm:grid-cols-3">
@@ -50,19 +42,18 @@ export default async function Bugun() {
 
       <section className="card">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="h2">Bugünkü işlerim</h2>
-          <Link href="/gorevler" className="text-sm font-medium text-accent underline underline-offset-2">Tüm görevler</Link>
+          <h2 className="h2">Bana atanan işler</h2>
         </div>
         {mine.length ? (
           <ul className="mt-1">{mine.map((t) => <TaskRow key={t.id} t={t} user={u} today={today} />)}</ul>
         ) : (
-          <p className="muted mt-2">Sana atanmış açık iş yok. Kontrol listeleri yukarıda.</p>
+          <p className="muted mt-2">Sana özel atanmış açık iş yok. Herkesin yaptığı işler yukarıdaki listelerde.</p>
         )}
       </section>
 
       <section className="flex flex-wrap gap-2">
-        <Link href="/stok" className="btn">Eksik bildir / stok say</Link>
-        <Link href="/gorevler#yeni" className="btn">Sorun bildir</Link>
+        <Link href="/stok" className="btn">Stok say</Link>
+        <Link href="/gorevler" className="btn">Yapılacaklar</Link>
       </section>
     </div>
   );

@@ -47,7 +47,7 @@ function DebtCard({ d, today }: { d: DebtV; today: string }) {
 export default async function Borclar() {
   const u = await requireUser();
   if (!can.seeFinance(u)) redirect("/");
-  const today = todayStr(), list = debts(today), taxRate = setting("tax_debt_rate") || "3.7";
+  const today = todayStr(), list = await debts(today), taxRate = await setting("tax_debt_rate") || "3.7";
   const vergi = list.filter((d) => d.kind === "vergi"), diger = list.filter((d) => d.kind !== "vergi");
   const sum = (l: DebtV[], k: "toplam" | "faiz" | "gunluk") => l.reduce((s, d) => s + d[k], 0);
 

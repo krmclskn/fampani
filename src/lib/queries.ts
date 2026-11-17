@@ -19,8 +19,6 @@ export const tasksWhere = (where: string, ...p: (string | number | null)[]) =>
 
 export type Area = { id: number; name: string; needs_cover: number };
 export const areas = () => all<Area>("SELECT * FROM areas ORDER BY id");
-export const activeUsers = () =>
-  all<{ id: number; name: string; role: string }>("SELECT id,name,role FROM users WHERE active=1 ORDER BY name");
 
 export type ItemV = {
   id: number; name: string; category: string | null; unit: string; location: string; qty: number; min_level: number;
@@ -30,19 +28,3 @@ export const stockItems = () =>
   all<ItemV>(`SELECT i.*, s.name AS supplier,
     (SELECT id FROM purchases p WHERE p.item_id=i.id AND p.status IN ('talep','onay_bekliyor','onaylandi','siparis') LIMIT 1) AS open_purchase
     FROM stock_items i LEFT JOIN suppliers s ON s.id=i.supplier_id WHERE i.active=1 ORDER BY i.location, i.name`);
-
-export const level = (i: { qty: number; min_level: number; critical_level: number }) =>
-  i.qty <= i.critical_level ? "kritik" : i.qty <= i.min_level ? "dusuk" : "ok";
-
-/** Açılış–kapanış arasında kapsanmayan saat aralıkları. */
-export function gaps(shifts: { start: string; end: string }[], open: string, close: string): string[] {
-  const out: string[] = [];
-  let cur = open;
-  for (const s of [...shifts].sort((a, b) => a.start.localeCompare(b.start))) {
-    if (s.start > cur) out.push(`${cur}–${s.start < close ? s.start : close}`);
-    if (s.end > cur) cur = s.end;
-    if (cur >= close) break;
-  }
-  if (cur < close) out.push(`${cur}–${close}`);
-  return out;
-}

@@ -6,30 +6,34 @@ import { get } from "@/lib/db";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const u = await requireUser();
-  const c = (sql: string, ...p: (string | number)[]) => get<{ c: number }>(sql, ...p)?.c ?? 0;
-  const myTasks = c("SELECT COUNT(*) AS c FROM tasks WHERE kind='is' AND status='atandi' AND (assignee_id=? OR assignee_role=?)", u.id, u.role);
-  const purchases = can.reviewPurchase(u)
-    ? c("SELECT COUNT(*) AS c FROM purchases WHERE status IN ('talep','onay_bekliyor','onaylandi')")
-    : 0;
+  const c = async (sql: string, ...p: (string | number)[]) => (await get<{ c: number }>(sql, ...p))?.c ?? 0;
+  const myTasks = await c("SELECT COUNT(*) AS c FROM tasks WHERE status='atandi' AND kind='is' AND assignee_id=?", u.id);
   const main = can.seeFinance(u)
     ? [{ href: "/finans", label: "Panel" }, { href: "/ciro", label: "Ciro" }, { href: "/giderler", label: "Giderler" }, { href: "/tedarikciler", label: "Tedarikçiler" }, { href: "/borclar", label: "Borçlar" }]
     : [];
-  const ops = [
-    { href: "/", label: "Bugün" },
-    { href: "/kontrol", label: "Kontrol listeleri" },
-    { href: "/gorevler", label: "Görevler", count: myTasks },
-    { href: "/vardiya", label: "Vardiya" },
-    { href: "/stok", label: "Stok" },
-    { href: "/satinalma", label: "Stok talepleri", count: purchases },
-    { href: "/kapanis", label: "Kapanış" },
-    ...(can.seeSummary(u) ? [{ href: "/ozet", label: "Operasyon özeti" }] : []),
-    ...(can.manage(u) ? [{ href: "/ayarlar", label: "Ayarlar" }] : []),
-  ];
+  const orders = can.orderPurchase(u) ? await c("SELECT COUNT(*) AS c FROM purchases WHERE status IN ('talep','onay_bekliyor','onaylandi','siparis','eksik_teslim')") : 0;
+  // Yönetici: genel bakış + işler/atamalar + stok. Personel: kendi günü, listeler ve stok.
+  // Yönetenler (sahip, işletmeci): genel bakış ve atamalar. Personel: kendi günü, işleri ve stok.
+  const ops = can.seeSummary(u)
+    ? [
+        { href: "/operasyon", label: "Genel bakış" },
+        { href: "/kontrol/duzenle", label: "İşler ve atamalar" },
+        { href: "/gorevler", label: "Yapılacaklar", count: myTasks },
+        { href: "/kontrol", label: "Bugünkü liste" },
+        { href: "/stok", label: "Stok ve sipariş", count: orders },
+        { href: "/ayarlar", label: "Kişiler" },
+      ]
+    : [
+        { href: "/", label: "Bugün" },
+        { href: "/gorevler", label: "Yapılacaklar", count: myTasks },
+        { href: "/kontrol", label: "Kontrol listeleri" },
+        { href: "/stok", label: "Stok" },
+      ];
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-10 border-b border-line bg-surface">
         <div className="flex items-center justify-between px-4 py-3 sm:px-6">
-          <Link href={main.length ? "/finans" : "/"} className="font-semibold tracking-tight">Fampani <span className="font-normal text-muted">· MekanSAL</span></Link>
+          <Link href={main.length ? "/finans" : can.seeSummary(u) ? "/operasyon" : "/"} className="font-semibold tracking-tight">Fampani <span className="font-normal text-muted">· MekanSAL</span></Link>
           <Link href="/hesap" className="text-right text-sm leading-tight">
             <span className="block font-medium">{u.name}</span>
             <span className="block text-xs text-muted">{ROLE_LABEL[u.role]}</span>

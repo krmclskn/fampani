@@ -7,10 +7,13 @@ import { useFormStatus } from "react-dom";
 type NavLink = { href: string; label: string; count?: number };
 
 function NavRow({ links, path, small }: { links: NavLink[]; path: string; small?: boolean }) {
+  // En uzun eşleşen bağlantı etkin sayılır (/kontrol/duzenle, /kontrol'ü de yakmasın).
+  const best = links.filter((l) => path === l.href || (l.href !== "/" && path.startsWith(l.href + "/")) || (l.href !== "/" && path === l.href))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href ?? (path === "/" ? "/" : undefined);
   return (
     <nav className={`flex gap-1 overflow-x-auto px-3 pb-2 sm:flex-wrap sm:px-6 ${small ? "border-t border-line pt-2" : ""}`} aria-label={small ? "Operasyon menüsü" : "Ana menü"}>
       {links.map((l) => {
-        const active = l.href === "/" ? path === "/" : path.startsWith(l.href);
+        const active = l.href === best;
         return (
           <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined}
             className={`whitespace-nowrap rounded-lg px-3 font-medium ${small ? "py-1.5 text-[13px]" : "py-2 text-sm"} ${
@@ -33,8 +36,8 @@ export function Nav({ main, ops }: { main: NavLink[]; ops: NavLink[] }) {
   return (
     <>
       <nav className="flex gap-1 overflow-x-auto px-3 pb-2 sm:px-6" aria-label="Ana menü">
-        {[...main, { href: "/", label: "Operasyon", count: total }].map((l) => {
-          const active = l.href === "/" ? inOps : path.startsWith(l.href);
+        {[...main, { href: "/operasyon", label: "Operasyon", count: total }].map((l) => {
+          const active = l.href === "/operasyon" ? inOps : path.startsWith(l.href);
           return (
             <Link key={l.href} href={l.href} aria-current={active ? "page" : undefined}
               className={`whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium ${active ? "bg-accent text-white" : "text-muted hover:bg-[#eeebe3]"}`}>

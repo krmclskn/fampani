@@ -15,8 +15,11 @@ export default async function Ciro({ searchParams }: { searchParams: Promise<{ a
   const today = todayStr(), current = today.slice(0, 7);
   const ay = (await searchParams).ay;
   const period = isPeriod(ay) && ay <= current ? ay : current;
-  const days = dailyRevenue(period), lump = lumpOf(period);
+  const days = await dailyRevenue(period), lump = await lumpOf(period);
   const total = days.reduce((s, d) => s + d.cash + d.card, 0) + lump;
+
+  const [vat, tax, pct] = await Promise.all([setting("revenue_vat_pct"), setting("income_tax_pct"), setting("card_commission_pct")]);
+  const rates = { vat, tax, pct };
 
   return (
     <div className="grid gap-4">
@@ -67,10 +70,11 @@ export default async function Ciro({ searchParams }: { searchParams: Promise<{ a
       <form action={ratesSave} className="card flex flex-wrap items-end gap-3">
         <div className="mr-auto max-w-md">
           <h2 className="h2">Ciro oranları</h2>
-          <p className="muted">Ciro KDV dahil girilir. İçindeki KDV bu oranla ayrıştırılır ve alımlarda ödediğin KDV düşülerek “ödenecek KDV” gider olarak yazılır. Kart cirosundan komisyon da gider olarak düşülür.</p>
+          <p className="muted">Ciro KDV dahil girilir. İçindeki KDV bu oranla ayrıştırılır ve alımlarda ödediğin KDV düşülerek “ödenecek KDV” gider olarak yazılır. Kart cirosundan komisyon da gider olarak düşülür. Gelir vergisi, ciro eksi resmi giderlerin bu oranı kadar hesaplanıp net kârdan düşülür.</p>
         </div>
-        <div><label className="label" htmlFor="vat">Ciro KDV oranı (%)</label><input id="vat" name="vat" inputMode="decimal" className="input w-24" defaultValue={setting("revenue_vat_pct")} /></div>
-        <div><label className="label" htmlFor="pct">Kart komisyonu (%)</label><input id="pct" name="pct" inputMode="decimal" className="input w-24" defaultValue={setting("card_commission_pct")} /></div>
+        <div><label className="label" htmlFor="vat">Ciro KDV oranı (%)</label><input id="vat" name="vat" inputMode="decimal" className="input w-24" defaultValue={rates.vat} /></div>
+        <div><label className="label" htmlFor="tax">Gelir vergisi (%)</label><input id="tax" name="tax" inputMode="decimal" className="input w-24" defaultValue={rates.tax} /></div>
+        <div><label className="label" htmlFor="pct">Kart komisyonu (%)</label><input id="pct" name="pct" inputMode="decimal" className="input w-24" defaultValue={rates.pct} /></div>
         <Submit className="btn">Kaydet</Submit>
       </form>
     </div>

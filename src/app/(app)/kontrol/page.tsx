@@ -10,8 +10,8 @@ export default async function Kontrol({ searchParams }: { searchParams: Promise<
   const t = (await searchParams).tur;
   const tur = t === "kapanis" || t === "gunici" ? t : "acilis";
   const today = todayStr();
-  ensureDay(today);
-  const tasks = tasksWhere("t.date=? AND t.kind=?", today, tur);
+  await ensureDay(today);
+  const tasks = await tasksWhere("t.date=? AND t.kind=?", today, tur);
   const byArea = new Map<string, typeof tasks>();
   for (const t of tasks) byArea.set(t.area ?? "Genel", [...(byArea.get(t.area ?? "Genel") ?? []), t]);
 

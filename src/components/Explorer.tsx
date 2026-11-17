@@ -74,23 +74,29 @@ export function Explorer({ data, groups }: { data: Record<Gran, Bucket[]>; group
       </dl>
 
       <figure>
-        <figcaption className="mb-1 text-sm text-muted">Sütun: giderler (renk = tür). <span className="font-semibold text-ink">▬</span> çizgi: ciro. Çizgi sütunun üstündeyse kâr var.</figcaption>
+        <figcaption className="mb-1 text-sm text-muted">Her dönemde solda <span className="font-semibold text-ink">ciro</span> (koyu sütun), sağında giderler (renk = tür). Ciro sütunu daha uzunsa kâr var.</figcaption>
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Dönemlere göre gider türleri ve ciro; aynı veriler aşağıdaki tabloda">
           {[0, 0.5, 1].map((f) => (
             <g key={f}><line x1={L} x2={W - R} y1={y(hi * 100 * f)} y2={y(hi * 100 * f)} stroke={f ? "#e8e4da" : "#a9a495"} />
               <text x={L - 6} y={y(hi * 100 * f) + 4} textAnchor="end" fontSize={11} fill="#68706a">{compact.format(hi * f)}</text></g>
           ))}
           {rows.map((r, i) => {
-            const x = L + slot * i + (slot - bw) / 2;
+            // Ciro açıkken iki sütun yan yana: solda ciro, sağda yığılmış giderler.
+            const w = ciroOn ? Math.max(3, Math.min(20, (slot - 8) / 2)) : bw;
+            const x0 = L + slot * i + (slot - (ciroOn ? 2 * w + 2 : w)) / 2, x = ciroOn ? x0 + w + 2 : x0;
             let acc = 0;
             return (
               <g key={i}>
+                {ciroOn && r.ciro > 0 && (
+                  <path d={`M${x0},${y(0)}V${y(r.ciro) + Math.min(3, w / 2)}q0,${-Math.min(3, w / 2)} ${Math.min(3, w / 2)},${-Math.min(3, w / 2)}h${w - 2 * Math.min(3, w / 2)}q${Math.min(3, w / 2)},0 ${Math.min(3, w / 2)},${Math.min(3, w / 2)}V${y(0)}Z`} fill={INK}>
+                    <title>{`${r.label} · Ciro: ${tl(r.ciro)}`}</title>
+                  </path>
+                )}
                 {r.parts.map((p) => {
                   if (p.v <= 0) return null;
                   const y1 = y(acc + p.v), h = y(acc) - y1; acc += p.v;
-                  return h > 0.4 ? <rect key={p.g.key} x={x} y={y1} width={bw} height={Math.max(h - 1.5, 0.5)} rx={1.5} fill={p.g.color}><title>{`${r.label} · ${p.g.label}: ${tl(p.v)}`}</title></rect> : null;
+                  return h > 0.4 ? <rect key={p.g.key} x={x} y={y1} width={w} height={Math.max(h - 1.5, 0.5)} rx={1.5} fill={p.g.color}><title>{`${r.label} · ${p.g.label}: ${tl(p.v)}`}</title></rect> : null;
                 })}
-                {ciroOn && r.ciro > 0 && <rect x={x - 3} y={y(r.ciro) - 1.5} width={bw + 6} height={3} rx={1.5} fill={INK}><title>{`${r.label} · Ciro: ${tl(r.ciro)}`}</title></rect>}
                 {i % every === 0 && <text x={L + slot * i + slot / 2} y={H - 8} textAnchor="middle" fontSize={11} fill="#68706a">{r.label}</text>}
               </g>
             );
@@ -101,7 +107,7 @@ export function Explorer({ data, groups }: { data: Record<Gran, Bucket[]>; group
       <figure>
         <figcaption className="mb-1 text-sm font-semibold">Net kâr <span className="font-normal text-muted">(seçili kalemlerle)</span></figcaption>
         <svg viewBox={`0 0 ${W} ${H2}`} className="w-full" role="img" aria-label="Dönemlere göre net kâr">
-          {[nHi, 0, ...(nLo < 0 ? [nLo] : [])].map((t) => (
+          {[...new Set([nHi, 0, nLo])].map((t) => (
             <g key={t}><line x1={L} x2={W - R} y1={y2(t * 100)} y2={y2(t * 100)} stroke={t === 0 ? "#a9a495" : "#e8e4da"} />
               <text x={L - 6} y={y2(t * 100) + 4} textAnchor="end" fontSize={11} fill="#68706a">{compact.format(t)}</text></g>
           ))}
@@ -132,7 +138,7 @@ export function Explorer({ data, groups }: { data: Record<Gran, Bucket[]>; group
           </table>
         </div>
       </details>
-      <p className="muted">Günlük ve haftalık görünümde sabit giderler ile aylık toplamlar ayın günlerine eşit dağıtılır; ödenecek KDV günlük ciroyla orantılı dağıtılır.</p>
+      <p className="muted">Günlük ve haftalık görünümde giderler (sabit ve tek seferlik) ile aylık toplamlar ait oldukları ayın günlerine eşit dağıtılır; tedarikçi alımları fatura gününde görünür; ödenecek KDV ve gelir vergisi günlük ciroyla orantılı dağıtılır.</p>
     </section>
   );
 }

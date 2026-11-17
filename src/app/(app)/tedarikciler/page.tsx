@@ -16,12 +16,12 @@ export default async function Tedarikciler({ searchParams }: { searchParams: Pro
   const today = todayStr(), current = today.slice(0, 7);
   const ay = (await searchParams).ay;
   const period = isPeriod(ay) && ay <= current ? ay : current;
-  const sups = supplierBalances(period);
-  const recs = all<Rec>(
+  const sups = await supplierBalances(period);
+  const recs = await all<Rec>(
     `SELECT 'alim' AS kind, id, supplier_id, date, amount, vat, monthly, note, period FROM sup_purchases WHERE period=?
      UNION ALL SELECT 'odeme', id, supplier_id, date, amount, 0, 0, note, substr(date,1,7) FROM sup_payments WHERE substr(date,1,7)=?
      ORDER BY date DESC, id DESC`, period, period);
-  const lines = all<{ purchase_id: number; name: string; qty: number; unit_price: number; vat_rate: number }>(
+  const lines = await all<{ purchase_id: number; name: string; qty: number; unit_price: number; vat_rate: number }>(
     "SELECT l.* FROM sup_purchase_lines l JOIN sup_purchases p ON p.id=l.purchase_id WHERE p.period=?", period);
   const tot = (k: "ayAlim" | "ayOdeme" | "bakiye" | "ayKdv") => sups.reduce((s, x) => s + x[k], 0);
 

@@ -8,7 +8,8 @@ import { areas } from "@/lib/queries";
 
 const GUN = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"];
 const KIND: Record<string, string> = { acilis: "Açılış", gunici: "Gün içi", kapanis: "Kapanış" };
-type Item = { id: number; kind: string; area_id: number; area: string; text: string; days: string; stock_item_id: number | null; stock: string | null };
+type Item = { id: number; kind: string; area_id: number; area: string; text: string; days: string; stock_item_id: number | null; stock: string | null; assignee_id: number | null; who: string | null };
+type Person = { id: number; name: string };
 
 function daysLabel(d: string) {
   if (d.length === 7) return "Her gün";
@@ -31,18 +32,23 @@ function Days({ value }: { value: string }) {
   );
 }
 
-function ItemForm({ item, ar, stock }: { item?: Item; ar: { id: number; name: string }[]; stock: { id: number; name: string; unit: string }[] }) {
+function ItemForm({ item, ar, stock, people }: { item?: Item; ar: { id: number; name: string }[]; stock: { id: number; name: string; unit: string }[]; people: Person[] }) {
   const k = item ? `e${item.id}` : "n";
   return (
     <form action={checkItemSave} className="grid gap-3">
       {item && <input type="hidden" name="id" value={item.id} />}
       <div><label className="label" htmlFor={`${k}t`}>Yapılacak iş</label><input id={`${k}t`} name="text" className="input" defaultValue={item?.text} placeholder="Örn. Buzdolabı sıcaklığını kontrol et" required maxLength={160} /></div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        <div><label className="label" htmlFor={`${k}k`}>Liste</label>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div><label className="label" htmlFor={`${k}w`}>Kim yapacak</label>
+          <select id={`${k}w`} name="assignee_id" className="input" defaultValue={item?.assignee_id ?? ""}>
+            <option value="">Herkes (vardiyadaki kişi)</option>
+            {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select></div>
+        <div><label className="label" htmlFor={`${k}k`}>Ne zaman</label>
           <select id={`${k}k`} name="kind" className="input" defaultValue={item?.kind ?? "gunici"}>{Object.entries(KIND).map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
         <div><label className="label" htmlFor={`${k}a`}>Alan</label>
           <select id={`${k}a`} name="area_id" className="input" defaultValue={item?.area_id}>{ar.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
-        <div className="col-span-2 sm:col-span-1"><label className="label" htmlFor={`${k}s`}>Stok sayımı istensin mi?</label>
+        <div><label className="label" htmlFor={`${k}s`}>Stok sayımı istensin mi?</label>
           <select id={`${k}s`} name="stock_item_id" className="input" defaultValue={item?.stock_item_id ?? ""}>
             <option value="">Hayır, normal iş</option>
             {stock.map((s) => <option key={s.id} value={s.id}>Say: {s.name} ({s.unit})</option>)}
@@ -57,24 +63,51 @@ function ItemForm({ item, ar, stock }: { item?: Item; ar: { id: number; name: st
 export default async function Duzenle() {
   const u = await requireUser();
   if (!can.manage(u)) redirect("/kontrol");
-  const items = all<Item>(
-    `SELECT c.id, c.kind, c.area_id, a.name AS area, c.text, c.days, c.stock_item_id, s.name AS stock FROM checklist_items c
-     JOIN areas a ON a.id=c.area_id LEFT JOIN stock_items s ON s.id=c.stock_item_id WHERE c.active=1 ORDER BY c.kind='kapanis', c.kind='gunici', c.area_id, c.position, c.id`);
-  const ar = areas(), stock = all<{ id: number; name: string; unit: string }>("SELECT id,name,unit FROM stock_items WHERE active=1 ORDER BY name");
+  const items = await all<Item>(
+    `SELECT c.id, c.kind, c.area_id, a.name AS area, c.text, c.days, c.stock_item_id, s.name AS stock, c.assignee_id, us.name AS who FROM checklist_items c
+     JOIN areas a ON a.id=c.area_id LEFT JOIN stock_items s ON s.id=c.stock_item_id LEFT JOIN users us ON us.id=c.assignee_id WHERE c.active=1 ORDER BY c.kind='kapanis', c.kind='gunici', c.area_id, c.position, c.id`);
+  const people = await all<Person>("SELECT id,name FROM users WHERE active=1 ORDER BY name");
+  const rows: { id: number | null; name: string }[] = [...people.filter((p) => items.some((i) => i.assignee_id === p.id)), { id: null, name: "Herkes" }];
+  const ar = await areas(), stock = await all<{ id: number; name: string; unit: string }>("SELECT id,name,unit FROM stock_items WHERE active=1 ORDER BY name");
 
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="h1">Kontrol listesini düzenle</h1>
-          <p className="muted">Buraya yazdığın işler seçtiğin günlerde personelin listesine kendiliğinden düşer. Stok sayımı seçersen personel işi miktar yazarak tamamlar.</p>
+          <h1 className="h1">İşler ve atamalar</h1>
+          <p className="muted">İşi yaz, kimin yapacağını ve hangi günler yapılacağını seç. Seçtiğin günlerde o kişinin listesine kendiliğinden düşer. Stok sayımı seçersen kişi işi miktar yazarak tamamlar.</p>
         </div>
-        <Link href="/kontrol" className="btn">Bugünkü listeye dön</Link>
+        <Link href="/kontrol" className="btn">Bugünkü listeyi gör</Link>
       </div>
 
       <section className="card">
-        <h2 className="h2 mb-3">Yeni madde</h2>
-        <ItemForm ar={ar} stock={stock} />
+        <h2 className="h2 mb-3">Yeni iş</h2>
+        <ItemForm ar={ar} stock={stock} people={people} />
+      </section>
+
+      <section className="card overflow-x-auto">
+        <h2 className="h2">Haftalık plan: kim, hangi gün, ne yapıyor</h2>
+        <table className="tbl mt-2 min-w-[640px]">
+          <thead><tr><th>Kişi</th>{GUN.map((g) => <th key={g}>{g}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id ?? 0}>
+                <td className="whitespace-nowrap font-medium">{r.name}</td>
+                {GUN.map((g, d) => {
+                  const list = items.filter((i) => i.assignee_id === r.id && i.days.includes(String(d + 1)));
+                  return (
+                    <td key={g} className="text-xs">
+                      {list.length === 0 ? <span className="text-muted">–</span> : list.length > 4 ? (
+                        <details><summary className="font-medium text-accent underline underline-offset-2">{list.length} iş</summary>
+                          <ul className="mt-1 grid gap-0.5">{list.map((i) => <li key={i.id}>{i.text}</li>)}</ul></details>
+                      ) : <ul className="grid gap-0.5">{list.map((i) => <li key={i.id}>{i.text}</li>)}</ul>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       {Object.entries(KIND).map(([kind, label]) => {
@@ -91,11 +124,12 @@ export default async function Duzenle() {
                         <span>{i.text}</span>
                         <span className="flex flex-wrap items-center gap-2 text-sm text-muted">
                           {i.stock && <span className="badge">Sayım: {i.stock}</span>}
+                          <span className="badge badge-ok">{i.who ?? "Herkes"}</span>
                           <span>{i.area}</span><span className="badge">{daysLabel(i.days)}</span>
                         </span>
                       </summary>
                       <div className="mt-3 grid gap-3 rounded-lg bg-bg p-3">
-                        <ItemForm item={i} ar={ar} stock={stock} />
+                        <ItemForm item={i} ar={ar} stock={stock} people={people} />
                         <form action={checkItemRemove}><input type="hidden" name="id" value={i.id} /><Submit className="btn btn-sm btn-danger">Listeden kaldır</Submit></form>
                       </div>
                     </details>

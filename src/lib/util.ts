@@ -25,18 +25,9 @@ export const TASK_STATUS: Record<string, string> = {
   iptal: "İptal edildi",
 };
 
-export const PURCHASE_STATUS: Record<string, string> = {
-  talep: "Talep",
-  onay_bekliyor: "Onay bekliyor",
-  onaylandi: "Onaylandı",
-  reddedildi: "Reddedildi",
-  siparis: "Sipariş verildi",
-  eksik_teslim: "Eksik teslim alındı",
-  teslim_alindi: "Teslim alındı",
-};
 
 export const LOCATIONS = [
-  "Mutfak soğuk depo", "Mutfak kuru depo", "Bar", "Ambalaj / sarf", "Temizlik malzemeleri", "Atölye malzemeleri",
+  "Mutfak soğuk depo", "Mutfak kuru depo", "Bar", "Ambalaj / sarf", "Temizlik malzemeleri", "Atölye malzemeleri", "Demirbaş",
 ];
 export const UNITS = ["adet", "kg", "litre", "paket", "koli"];
 
@@ -72,16 +63,8 @@ export function parseKurus(v: FormDataEntryValue | null): number | null {
 }
 export const str = (v: FormDataEntryValue | null) => (typeof v === "string" && v.trim() ? v.trim() : null);
 
-export const COUNT_REASONS = [
-  "Satış girişi eksik", "Reçete miktarı yanlış", "Fire/ikram kaydı unutuldu", "Teslimat eksik veya yanlış girildi",
-  "Sayım hatası", "Sebep bilinmiyor",
-];
-export const WASTE_KINDS: Record<string, string> = { fire: "Fire / zayi", ikram: "İkram", ic_kullanim: "İç kullanım" };
-export const WASTE_REASONS = ["Üretim hatası", "Bozulma", "Fazla üretim", "Düşme/hasar", "İade", "Tarih aşımı", "Diğer"];
 export const tlInput = (kurus: number | null | undefined) => (kurus == null ? "" : String(kurus / 100).replace(".", ","));
 
-/** Kapalı modüller: ürün/reçete bazlı satış ve kasa. Yeniden açmak için true yapın. */
-export const FEATURES = { kasa: false };
 
 const AYLAR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
 export const isPeriod = (s: string | null | undefined): s is string => !!s && /^\d{4}-(0[1-9]|1[0-2])$/.test(s);

@@ -6,14 +6,19 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:import": "node --env-file-if-exists=.env.local scripts/db.mjs import --from=yerel",
+    "db:check": "node --env-file-if-exists=.env.local scripts/db.mjs check",
+    "db:baglan": "node scripts/baglan.mjs"
   },
   "dependencies": {
     "next": "16.4.6",
+    "postgres": "^3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "@tailwindcss/turbopack": "4.3.3",
     "@types/node": "^24.19.2",
     "@types/react": "^19",
@@ -22,5 +27,8 @@
     "eslint-config-next": "16.4.6",
     "tailwindcss": "4.3.3",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=22.5"
   }
 }

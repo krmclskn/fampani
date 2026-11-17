@@ -46,23 +46,24 @@ function Row({ label, a, b, cost, bold, indent, ciro, color }: { label: string; 
 export default async function Panel({ searchParams }: { searchParams: Promise<{ ay?: string }> }) {
   const u = await requireUser();
   if (!can.seeFinance(u)) redirect("/");
-  ensureRecurring();
+  await ensureRecurring();
   const today = todayStr(), current = today.slice(0, 7);
   const ay = (await searchParams).ay;
   const period = isPeriod(ay) && ay <= current ? ay : current;
-  const data = chartData(period), cur = data.ay[11], prev = data.ay[10];
+  const data = await chartData(period), cur = data.ay[11], prev = data.ay[10];
   const net = (b: Bucket) => b.ciro - giderOf(b);
-  const kdv = kdvByPeriod(period).get(period) ?? { out: 0, inp: 0, devir: 0, odenecek: 0, devreden: 0 };
-  const catsCur = expenseByCategory(period), catsOld = new Map(expenseByCategory(prev.key).map((c) => [c.name, c]));
+  const kdv = (await kdvByPeriod(period)).get(period) ?? { out: 0, inp: 0, devir: 0, odenecek: 0, devreden: 0 };
+  const catsCur = await expenseByCategory(period), catsOld = new Map((await expenseByCategory(prev.key)).map((c) => [c.name, c]));
   const cats = [...catsCur, ...[...catsOld.values()].filter((o) => !catsCur.some((c) => c.name === o.name)).map((o) => ({ ...o, total: 0 }))];
-  const supsCur = purchasesBySupplier(period), supsOld = new Map(purchasesBySupplier(prev.key).map((s) => [s.name, s.total]));
+  const supsCur = await purchasesBySupplier(period), supsOld = new Map((await purchasesBySupplier(prev.key)).map((s) => [s.name, s.total]));
   const sups = [...supsCur, ...[...supsOld].filter(([n]) => !supsCur.some((c) => c.name === n)).map(([name]) => ({ name, total: 0 }))];
-  const pct = Number(setting("card_commission_pct")) || 0, kom = (b: Bucket) => Math.round((b.kart * pct) / 100);
-  const todayRow = get<{ cash: number; card: number }>("SELECT cash, card FROM revenue_days WHERE date=?", today);
-  const supDebt = supplierBalances(period).reduce((s, x) => s + Math.max(x.bakiye, 0), 0);
-  const ds = debts(), taxDebt = ds.filter((d) => d.kind === "vergi").reduce((s, d) => s + d.toplam, 0), otherDebt = ds.filter((d) => d.kind !== "vergi").reduce((s, d) => s + d.toplam, 0);
+  const pct = Number(await setting("card_commission_pct")) || 0, kom = (b: Bucket) => Math.round((b.kart * pct) / 100);
+  const todayRow = await get<{ cash: number; card: number }>("SELECT cash, card FROM revenue_days WHERE date=?", today);
+  const supDebt = (await supplierBalances(period)).reduce((s, x) => s + Math.max(x.bakiye, 0), 0);
+  const ds = await debts(), taxDebt = ds.filter((d) => d.kind === "vergi").reduce((s, d) => s + d.toplam, 0), otherDebt = ds.filter((d) => d.kind !== "vergi").reduce((s, d) => s + d.toplam, 0);
   const resmiCats = cats.filter((c) => c.official), gayriCats = cats.filter((c) => !c.official);
-  const resmiTot = (b: Bucket) => gsum(b, "kira") + gsum(b, "maas") + gsum(b, "sgk") + gsum(b, "vergi") + gsum(b, "resmi");
+  const resmiTot = (b: Bucket) => gsum(b, "kira") + gsum(b, "maas") + gsum(b, "sgk") + gsum(b, "vergi") - b.tax + gsum(b, "resmi");
+  const taxPct = Number(await setting("income_tax_pct")) || 0, vatPct = Number(await setting("revenue_vat_pct"));
   const col = (k: string) => GROUPS.find((g) => g.key === k)?.color;
 
   return (
@@ -89,7 +90,7 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
         <Tile label={`Ciro · ${periodLabel(period)}`} cur={cur.ciro} prev={prev.ciro} good="up" />
         <Tile label="Toplam gider" cur={giderOf(cur)} prev={giderOf(prev)} good="down" />
         <Tile label="Ödenecek KDV" cur={kdv.odenecek} prev={gsum(prev, "kdv")} good="down" />
-        <Tile label="Net kâr" cur={net(cur)} prev={net(prev)} good="up" />
+        <Tile label="Net kâr (vergi sonrası)" cur={net(cur)} prev={net(prev)} good="up" />
       </section>
 
       <Explorer key={period} data={data} groups={GROUPS.map((g) => ({ ...g }))} />
@@ -113,17 +114,20 @@ export default async function Panel({ searchParams }: { searchParams: Promise<{ 
 
             <Row ciro={cur.ciro} label="Ödenecek KDV" a={kdv.odenecek} b={gsum(prev, "kdv")} cost bold color={col("kdv")} />
             <tr><td className="pl-6 text-muted" colSpan={5}>
-              Cirodaki KDV (%{fmtQty(Number(setting("revenue_vat_pct")))}) {fmtTL(kdv.out)} − alım ve giderlerde ödenen KDV {fmtTL(kdv.inp)}
+              Cirodaki KDV (%{fmtQty(vatPct)}) {fmtTL(kdv.out)} − alım ve giderlerde ödenen KDV {fmtTL(kdv.inp)}
               {kdv.devir ? ` − geçen aydan devreden ${fmtTL(kdv.devir)}` : ""}{kdv.devreden ? ` → sonraki aya devreden ${fmtTL(kdv.devreden)}` : ""}
             </td></tr>
+
+            <Row ciro={cur.ciro} label="Vergi öncesi kâr (ciro − resmi giderler)" a={cur.taxBase} b={prev.taxBase} bold />
+            <Row ciro={cur.ciro} label={`Gelir vergisi (%${fmtQty(taxPct)})`} a={cur.tax} b={prev.tax} cost bold color={col("vergi")} />
 
             <Row ciro={cur.ciro} label="Resmi olmayan giderler" a={gsum(cur, "gayri")} b={gsum(prev, "gayri")} cost bold color={col("gayri")} />
             {gayriCats.map((c) => <Row ciro={cur.ciro} key={c.name} label={c.name} a={c.total} b={catsOld.get(c.name)?.total ?? 0} cost indent />)}
 
-            <Row ciro={cur.ciro} label="Net kâr" a={net(cur)} b={net(prev)} bold />
+            <Row ciro={cur.ciro} label="Net kâr (vergi sonrası)" a={net(cur)} b={net(prev)} bold />
           </tbody>
         </table>
-        <p className="muted mt-2">Tüm tutarlar KDV dahildir; KDV farkı “Ödenecek KDV” satırında ayrıca gider yazılır. Alımlar fatura ayına yazılır. Yönetim amaçlıdır; KDV ve vergi hesabını mali müşavirinle doğrula.</p>
+        <p className="muted mt-2">Tüm tutarlar KDV dahildir; KDV farkı “Ödenecek KDV” satırında ayrıca gider yazılır. Gelir vergisi = (ciro − alımlar − resmi giderler − ödenecek KDV) × oran; resmi olmayan giderler vergiden düşülmez, zarar varsa vergi 0 alınır. Alımlar fatura ayına yazılır. Yönetim amaçlıdır; KDV ve vergi hesabını mali müşavirinle doğrula.</p>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-3">

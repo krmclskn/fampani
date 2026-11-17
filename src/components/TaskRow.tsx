@@ -20,7 +20,7 @@ export function TaskRow({ t, user, today }: { t: TaskV; user: User; today: strin
             {t.kind === "is" && t.date < today && open && <span className="badge badge-warn">Devreden</span>}
             {t.area && <span>{t.area}</span>}
             {t.stock_name && <span className="badge">Stok sayımı: {t.stock_name}</span>}
-            {t.kind === "is" && <span>→ {t.assignee ?? (t.assignee_role ? ROLE_LABEL[t.assignee_role as Role] : "Atanmamış")}</span>}
+            {t.kind === "is" ? <span>→ {t.assignee ?? (t.assignee_role ? ROLE_LABEL[t.assignee_role as Role] : "Atanmamış")}</span> : t.assignee ? <span>→ {t.assignee}</span> : null}
             {t.needs_review ? <span>Kontrol gerekir</span> : null}
             {t.done_name && <span>{t.done_name}, {fmtDateTime(t.done_at)}</span>}
           </p>
