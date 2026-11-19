@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Submit } from "@/components/client";
+import { Fold, Submit } from "@/components/client";
 import { MonthNav } from "@/components/MonthNav";
 import { PurchaseForm } from "@/components/PurchaseForm";
 import { can, requireUser } from "@/lib/auth";
@@ -38,17 +38,14 @@ export default async function Tedarikciler({ searchParams }: { searchParams: Pro
       {sups.map((s) => {
         const mine = recs.filter((r) => r.supplier_id === s.id);
         return (
-          <section key={s.id} className="card">
-            <details open={mine.length > 0 && sups.length <= 4}>
-              <summary className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                <span className="h2">{s.name}</span>
-                <span className="flex flex-wrap gap-x-4 text-sm tabular-nums">
+          <Fold key={s.id} id={`tedarikci:${s.id}`} title={s.name}
+            meta={
+                <span className="flex flex-wrap justify-end gap-x-4 text-sm font-normal tabular-nums">
                   <span><span className="text-muted">Bu ay alım</span> {fmtTL(s.ayAlim)}</span>
                   <span><span className="text-muted">ödeme</span> {fmtTL(s.ayOdeme)}</span>
                   <span className={s.bakiye > 0 ? "font-semibold" : ""}><span className="font-normal text-muted">borç</span> {fmtTL(s.bakiye)}</span>
-                </span>
-              </summary>
-              <div className="mt-3 grid gap-4">
+                </span>}>
+              <div className="mt-1 grid gap-4">
                 <div className="grid gap-3 rounded-lg bg-bg p-3">
                   <h3 className="label">Yeni alım</h3>
                   <PurchaseForm supplierId={s.id} today={today} />
@@ -121,8 +118,7 @@ export default async function Tedarikciler({ searchParams }: { searchParams: Pro
                   </form>
                 </details>
               </div>
-            </details>
-          </section>
+          </Fold>
         );
       })}
 

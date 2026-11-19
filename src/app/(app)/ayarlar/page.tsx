@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Submit } from "@/components/client";
+import { Fold, Submit } from "@/components/client";
 import { passwordChange, userCreate, userUpdate } from "@/lib/actions";
 import { can, requireUser, type Role } from "@/lib/auth";
 import { all } from "@/lib/db";
@@ -28,8 +28,8 @@ export default async function Kisiler() {
         <p className="muted">{active.length} kişi giriş yapabiliyor. Çıkardığın kişi giriş yapamaz; geçmiş kayıtları durur.</p>
       </div>
 
-      <form action={userCreate} className="card grid gap-3">
-        <h2 className="h2">Kişi ekle</h2>
+      <Fold id="kisi:ekle" title="+ Kişi ekle">
+      <form action={userCreate} className="grid gap-3">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <div><label className="label" htmlFor="name">Ad soyad</label><input id="name" name="name" className="input" required /></div>
           <div><label className="label" htmlFor="title">Görevi</label><input id="title" name="title" className="input" placeholder="Örn. Barista" /></div>
@@ -41,11 +41,15 @@ export default async function Kisiler() {
         <ul className="grid gap-0.5 text-xs text-muted">{roles.map(([k, l, d]) => <li key={k}><b className="font-semibold">{l}:</b> {d}</li>)}</ul>
         <div><Submit>Kişiyi ekle</Submit></div>
       </form>
+      </Fold>
 
-      <section className="card">
-        <h2 className="h2">Ekip</h2>
-        <ul className="mt-1">
-          {active.map((p) => {
+      {[...[...ROLES].reverse(), ["diger", "Diğer", ""] as const].map(([role, roleLabel]) => {
+        const group = active.filter((p) => role === "diger" ? !ROLES.some(([k]) => k === p.role) : p.role === role);
+        if (!group.length) return null;
+        return (
+      <Fold key={role} id={`kisi:${role}`} title={role === "calisan" ? "Personel" : role === "sahip" ? "İşletme sahipleri" : roleLabel} count={group.length} defaultOpen>
+        <ul>
+          {group.map((p) => {
             const locked = (p.role === "sahip" && !owner) || p.id === u.id;
             return (
               <li key={p.id} className="border-b border-line py-3 last:border-0">
@@ -90,12 +94,13 @@ export default async function Kisiler() {
             );
           })}
         </ul>
-      </section>
+      </Fold>
+        );
+      })}
 
       {gone.length > 0 && (
-        <details className="card">
-          <summary className="h2">Çıkarılanlar <span className="badge ml-1">{gone.length}</span></summary>
-          <ul className="mt-2">
+        <Fold id="kisi:cikan" title="Çıkarılanlar" count={gone.length}>
+          <ul>
             {gone.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-line py-2 last:border-0">
                 <span className="text-muted">{p.name} <span className="text-xs">@{p.username} · {label(p.role)}</span></span>
@@ -105,7 +110,7 @@ export default async function Kisiler() {
               </li>
             ))}
           </ul>
-        </details>
+        </Fold>
       )}
     </div>
   );

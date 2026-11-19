@@ -1,4 +1,4 @@
-import { Submit } from "@/components/client";
+import { Fold, Submit } from "@/components/client";
 import { todoAct, todoAdd, todoFinish } from "@/lib/actions";
 import { can, requireUser, type User } from "@/lib/auth";
 import { all, todayStr } from "@/lib/db";
@@ -139,12 +139,11 @@ function JobCard({ job, c }: { job: Job; c: Ctx }) {
   );
 }
 
-function Column({ title, hint, list, c }: { title: string; hint: string; list: Job[]; c: Ctx }) {
+function Column({ id, title, hint, list, c, open = true }: { id: string; title: string; hint: string; list: Job[]; c: Ctx; open?: boolean }) {
   return (
-    <section className="rounded-xl bg-[#eeebe3] p-3">
-      <h2 className="h2 px-1">{title} <span className="badge ml-1 bg-surface">{list.length}</span></h2>
-      {list.length ? <ul className="mt-2 grid gap-2">{list.map((j) => <JobCard key={j.stages[0].id} job={j} c={c} />)}</ul> : <p className="muted mt-2 px-1">{hint}</p>}
-    </section>
+    <Fold id={`isler:${id}`} title={title} count={list.length} defaultOpen={open} className="rounded-xl bg-[#eeebe3] p-3">
+      {list.length ? <ul className="grid gap-2">{list.map((j) => <JobCard key={j.stages[0].id} job={j} c={c} />)}</ul> : <p className="muted px-1">{hint}</p>}
+    </Fold>
   );
 }
 
@@ -210,16 +209,15 @@ export default async function Yapilacaklar() {
       </form>
 
       <div className="grid items-start gap-4 lg:grid-cols-3">
-        <Column title="Bende" hint="Sende bekleyen iş yok." list={mine} c={c} />
-        <Column title="Sahipsiz" hint="Üstlenilmeyi bekleyen iş yok." list={pool} c={c} />
-        <Column title="Başkalarında" hint="Başkasında bekleyen iş yok." list={others} c={c} />
+        <Column id="bende" title="Bende" hint="Sende bekleyen iş yok." list={mine} c={c} />
+        <Column id="sahipsiz" title="Sahipsiz" hint="Üstlenilmeyi bekleyen iş yok." list={pool} c={c} />
+        <Column id="baskalari" title="Başkalarında" hint="Başkasında bekleyen iş yok." list={others} c={c} />
       </div>
 
       {done.length > 0 && (
-        <details className="card">
-          <summary className="h2">Son 7 günde tamamlanan işler <span className="badge ml-1">{done.length}</span></summary>
-          <ul className="mt-2 grid gap-2">{done.map((j) => <JobCard key={j.stages[0].id} job={j} c={c} />)}</ul>
-        </details>
+        <Fold id="isler:biten" title="Son 7 günde tamamlanan işler" count={done.length}>
+          <ul className="grid gap-2">{done.map((j) => <JobCard key={j.stages[0].id} job={j} c={c} />)}</ul>
+        </Fold>
       )}
     </div>
   );

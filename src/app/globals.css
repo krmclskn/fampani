@@ -62,3 +62,8 @@ body { background: var(--bg); color: var(--ink); font-family: var(--font-geist-s
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 details > summary { cursor: pointer; list-style: none; }
 details > summary::-webkit-details-marker { display: none; }
+
+/* Açılır başlıklar (Fold) */
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary { min-height: 28px; }
+.fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }

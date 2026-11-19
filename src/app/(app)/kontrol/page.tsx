@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fold } from "@/components/client";
 import { TaskRow } from "@/components/TaskRow";
 import { can, requireUser } from "@/lib/auth";
 import { ensureDay, todayStr } from "@/lib/db";
@@ -33,13 +34,10 @@ export default async function Kontrol({ searchParams }: { searchParams: Promise<
       {[...byArea].map(([area, list]) => {
         const closed = list.filter((t) => t.status !== "atandi").length;
         return (
-          <section key={area} className="card">
-            <div className="flex items-center justify-between">
-              <h2 className="h2">{area}</h2>
-              <span className={`badge ${closed === list.length ? "badge-ok" : ""}`}>{closed}/{list.length}</span>
-            </div>
-            <ul className="mt-1">{list.map((t) => <TaskRow key={t.id} t={t} user={u} today={today} />)}</ul>
-          </section>
+          <Fold key={area} id={`kontrol:${tur}:${area}`} title={area} defaultOpen={closed < list.length}
+            meta={<span className={`badge ${closed === list.length ? "badge-ok" : ""}`}>{closed === list.length ? "✓ bitti" : `${closed}/${list.length}`}</span>}>
+            <ul>{list.map((t) => <TaskRow key={t.id} t={t} user={u} today={today} />)}</ul>
+          </Fold>
         );
       })}
     </div>

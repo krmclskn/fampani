@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Submit } from "@/components/client";
+import { Fold, Submit } from "@/components/client";
 import { MonthNav } from "@/components/MonthNav";
 import { can, requireUser } from "@/lib/auth";
 import { ensureRecurring, todayStr } from "@/lib/db";
@@ -9,19 +9,20 @@ import { GROUPS, VAT_RATES, fmtTL, isPeriod, periodLabel, tlInput } from "@/lib/
 
 type Row = Awaited<ReturnType<typeof expenseRows>>[number];
 
-function List({ rows, period, empty, today }: { rows: Row[]; period: string; empty: string; today: string }) {
+function List({ rows, period, empty, today, id }: { rows: Row[]; period: string; empty: string; today: string; id: string }) {
   if (!rows.length) return <p className="muted py-2">{empty}</p>;
   const groups = GROUPS.filter((g) => rows.some((r) => r.grp === g.key));
   return (
-    <div className="mt-2 grid gap-3">
+    <div className="grid gap-1">
       {groups.map((g) => {
         const list = rows.filter((r) => r.grp === g.key);
         return (
-          <div key={g.key}>
-            <div className="flex items-center justify-between border-b border-line pb-1 text-sm font-semibold">
-              <span className="flex items-center gap-2"><span className="inline-block size-3 rounded-sm" style={{ background: g.color }} />{g.label}</span>
-              <span className="tabular-nums">{fmtTL(list.reduce((s, r) => s + r.amount, 0))}</span>
-            </div>
+          <Fold key={g.key} id={`gider:${id}:${g.key}`} className="rounded-lg border border-line px-3 py-2"
+            title={<span className="flex items-center gap-2 text-sm"><span className="inline-block size-3 rounded-sm" style={{ background: g.color }} />{g.label}</span>}
+            meta={<>
+              <span className="hidden text-xs text-muted sm:inline">{list.length} kalem{list.some((r) => !r.paid_at) ? ` · ${list.filter((r) => !r.paid_at).length} ödenmemiş` : ""}</span>
+              <span className="text-sm font-semibold tabular-nums">{fmtTL(list.reduce((s, r) => s + r.amount, 0))}</span>
+            </>}>
             <ul>
               {list.map((e) => (
                 <li key={e.id} className="border-b border-line py-2 last:border-0">
@@ -67,7 +68,7 @@ function List({ rows, period, empty, today }: { rows: Row[]; period: string; emp
                 </li>
               ))}
             </ul>
-          </div>
+          </Fold>
         );
       })}
     </div>
@@ -96,8 +97,8 @@ export default async function Giderler({ searchParams }: { searchParams: Promise
       </div>
 
       <section className="grid gap-4 lg:grid-cols-2">
-        <form action={expenseAdd} className="card grid content-start gap-3">
-          <h2 className="h2">Gider ekle</h2>
+        <Fold id="gider:ekle" title="+ Gider ekle" className="card self-start">
+        <form action={expenseAdd} className="grid content-start gap-3">
           <input type="hidden" name="period" value={period} />
           <div className="grid grid-cols-2 gap-2">
             <div className="col-span-2">
@@ -123,9 +124,10 @@ export default async function Giderler({ searchParams }: { searchParams: Promise
           </div>
           <p className="muted">Kira gibi KDV’li giderde toplamı (kira + KDV) yaz; oranı seç ya da faturadaki KDV tutarını elle gir. KDV, ödenecek KDV’den düşülür. Ödeme tarihini sonradan satırdaki “Ödendi” ile de girebilirsin. Resmi olmayan türlerde KDV uygulanmaz.</p>
         </form>
+        </Fold>
 
-        <form action={salaryAdd} className="card grid content-start gap-3">
-          <h2 className="h2">Maaş ekle</h2>
+        <Fold id="gider:maas" title="+ Maaş ekle" className="card self-start">
+        <form action={salaryAdd} className="grid content-start gap-3">
           <div className="grid grid-cols-2 gap-2">
             <div className="col-span-2"><label className="label" htmlFor="person">Çalışan</label><input id="person" name="person" className="input" required /></div>
             <div><label className="label" htmlFor="maas">Bordrodaki net maaş (TL)</label><input id="maas" name="maas" inputMode="decimal" className="input" /></div>
@@ -137,18 +139,17 @@ export default async function Giderler({ searchParams }: { searchParams: Promise
           <Submit className="btn btn-primary justify-self-end">Maaşı ekle</Submit>
           <p className="muted">Doldurduğun her alan ayrı kalem olur: maaş “Maaşlar”a, prim “SGK / Bağkur”a, elden ödeme “Resmi olmayan”a yazılır. Boş bıraktığın alan atlanır.</p>
         </form>
+        </Fold>
       </section>
 
-      <section className="card">
-        <div className="flex items-baseline justify-between gap-2"><h2 className="h2">Resmi giderler</h2><span className="font-semibold tabular-nums">{fmtTL(sum(resmi))}</span></div>
-        <List rows={resmi} period={period} today={today} empty="Bu ay resmi gider yok." />
-      </section>
+      <Fold id="gider:resmi" title="Resmi giderler" defaultOpen meta={<span className="font-semibold tabular-nums">{fmtTL(sum(resmi))}</span>}>
+        <List id="resmi" rows={resmi} period={period} today={today} empty="Bu ay resmi gider yok." />
+      </Fold>
 
-      <section className="card">
-        <div className="flex items-baseline justify-between gap-2"><h2 className="h2">Resmi olmayan giderler</h2><span className="font-semibold tabular-nums">{fmtTL(sum(gayri))}</span></div>
-        <p className="muted">SGK’sız maaşlar, part-time ödemeler, faturasız ödemeler.</p>
-        <List rows={gayri} period={period} today={today} empty="Bu ay resmi olmayan gider yok." />
-      </section>
+      <Fold id="gider:gayri" title="Resmi olmayan giderler" defaultOpen meta={<span className="font-semibold tabular-nums">{fmtTL(sum(gayri))}</span>}>
+        <p className="muted mb-2">SGK’sız maaşlar, part-time ödemeler, faturasız ödemeler.</p>
+        <List id="gayri" rows={gayri} period={period} today={today} empty="Bu ay resmi olmayan gider yok." />
+      </Fold>
     </div>
   );
 }

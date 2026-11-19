@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Submit } from "@/components/client";
+import { Fold, Submit } from "@/components/client";
 import { checkItemRemove, checkItemSave } from "@/lib/actions";
 import { can, requireUser } from "@/lib/auth";
 import { all } from "@/lib/db";
@@ -80,14 +80,13 @@ export default async function Duzenle() {
         <Link href="/kontrol" className="btn">Bugünkü listeyi gör</Link>
       </div>
 
-      <section className="card">
-        <h2 className="h2 mb-3">Yeni iş</h2>
+      <Fold id="duzenle:yeni" title="+ Yeni iş ekle">
         <ItemForm ar={ar} stock={stock} people={people} />
-      </section>
+      </Fold>
 
-      <section className="card overflow-x-auto">
-        <h2 className="h2">Haftalık plan: kim, hangi gün, ne yapıyor</h2>
-        <table className="tbl mt-2 min-w-[640px]">
+      <Fold id="duzenle:plan" title="Haftalık plan: kim, hangi gün, ne yapıyor" defaultOpen>
+        <div className="overflow-x-auto">
+        <table className="tbl min-w-[640px]">
           <thead><tr><th>Kişi</th>{GUN.map((g) => <th key={g}>{g}</th>)}</tr></thead>
           <tbody>
             {rows.map((r) => (
@@ -108,15 +107,15 @@ export default async function Duzenle() {
             ))}
           </tbody>
         </table>
-      </section>
+        </div>
+      </Fold>
 
       {Object.entries(KIND).map(([kind, label]) => {
         const list = items.filter((i) => i.kind === kind);
         return (
-          <section key={kind} className="card">
-            <h2 className="h2">{label} <span className="badge ml-1">{list.length}</span></h2>
+          <Fold key={kind} id={`duzenle:${kind}`} title={`${label} işleri`} count={list.length}>
             {list.length ? (
-              <ul className="mt-1">
+              <ul>
                 {list.map((i) => (
                   <li key={i.id} className="border-b border-line py-2 last:border-0">
                     <details>
@@ -136,8 +135,8 @@ export default async function Duzenle() {
                   </li>
                 ))}
               </ul>
-            ) : <p className="muted mt-2">Bu listede madde yok.</p>}
-          </section>
+            ) : <p className="muted">Bu listede madde yok.</p>}
+          </Fold>
         );
       })}
     </div>

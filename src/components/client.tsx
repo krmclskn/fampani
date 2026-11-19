@@ -78,3 +78,31 @@ export function Submit({ children, className = "btn btn-primary", name, value }:
     </button>
   );
 }
+
+/**
+ * Açılır-kapanır başlık. Başlığa basınca içerik açılır; açık/kapalı durumu bu cihazda hatırlanır.
+ * `id` her bölüm için benzersiz olmalı (ör. "stok:Bar").
+ */
+export function Fold({ id, title, count, tone, meta, defaultOpen = false, className = "card", children }: {
+  id: string; title: React.ReactNode; count?: number; tone?: "warn" | "bad" | "ok"; meta?: React.ReactNode;
+  defaultOpen?: boolean; className?: string; children: React.ReactNode;
+}) {
+  const key = "fold:" + id;
+  const restore = (el: HTMLDetailsElement | null) => {
+    if (!el || el.dataset.restored) return;
+    el.dataset.restored = "1";
+    try { const v = localStorage.getItem(key); if (v !== null) el.open = v === "1"; } catch {}
+  };
+  return (
+    <details ref={restore} open={defaultOpen} className={`fold ${className}`}
+      onToggle={(e) => { try { localStorage.setItem(key, (e.currentTarget as HTMLDetailsElement).open ? "1" : "0"); } catch {} }}>
+      <summary className="flex cursor-pointer list-none items-center gap-2 select-none">
+        <svg aria-hidden viewBox="0 0 20 20" className="size-4 shrink-0 text-muted transition-transform [details[open]>summary>&]:rotate-90"><path d="M7 4l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <span className="h2 min-w-0 flex-1">{title}</span>
+        {meta}
+        {count !== undefined && <span className={`badge ${tone ? "badge-" + tone : ""}`}>{count}</span>}
+      </summary>
+      <div className="mt-2">{children}</div>
+    </details>
+  );
+}

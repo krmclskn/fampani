@@ -1,3 +1,4 @@
+import { Fold } from "@/components/client";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { can, requireUser } from "@/lib/auth";
@@ -86,13 +87,16 @@ export default async function Operasyon() {
           <h2 className="h2">Stok akışı</h2>
           <Link href="/stok" className="btn btn-sm">Stok ve siparişi aç</Link>
         </div>
-        <div className="mt-2 grid gap-4 text-sm md:grid-cols-3">
-          <div><h3 className="label">Minimum altı</h3>
-            {low.length ? <ul className="grid gap-1">{low.map((i) => <li key={i.id}>{i.name}: <b className="font-medium">{fmtQty(i.qty)}</b> / min {fmtQty(i.min_level)} {i.unit}</li>)}</ul> : <p className="muted">Yok.</p>}</div>
-          <div><h3 className="label">Sipariş verilecek</h3>
-            {toOrder.length ? <ul className="grid gap-1">{toOrder.map((o, i) => <li key={i}>{o.item}</li>)}</ul> : <p className="muted">Yok.</p>}</div>
-          <div><h3 className="label">Teslimat bekleniyor</h3>
-            {waiting.length ? <ul className="grid gap-1">{waiting.map((o, i) => <li key={i}>{o.item}: {fmtQty(o.qty_order)} {o.unit}</li>)}</ul> : <p className="muted">Yok.</p>}</div>
+        <div className="mt-2 grid gap-2 text-sm">
+          <Fold id="ops:min" title="Minimum altı" count={low.length} tone={low.length ? "bad" : undefined} className="rounded-lg border border-line px-3 py-2">
+            {low.length ? <ul className="grid gap-1">{low.map((i) => <li key={i.id}>{i.name}: <b className="font-medium">{fmtQty(i.qty)}</b> / min {fmtQty(i.min_level)} {i.unit}</li>)}</ul> : <p className="muted">Yok.</p>}
+          </Fold>
+          <Fold id="ops:siparis" title="Sipariş verilecek" count={toOrder.length} tone={toOrder.length ? "warn" : undefined} className="rounded-lg border border-line px-3 py-2">
+            {toOrder.length ? <ul className="grid gap-1">{toOrder.map((o, i) => <li key={i}>{o.item}</li>)}</ul> : <p className="muted">Yok.</p>}
+          </Fold>
+          <Fold id="ops:teslimat" title="Teslimat bekleniyor" count={waiting.length} className="rounded-lg border border-line px-3 py-2">
+            {waiting.length ? <ul className="grid gap-1">{waiting.map((o, i) => <li key={i}>{o.item}: {fmtQty(o.qty_order)} {o.unit}</li>)}</ul> : <p className="muted">Yok.</p>}
+          </Fold>
         </div>
         <p className="muted mt-3">Akış: ürün minimumun altına iner → sipariş listesine düşer → sipariş verdiğin miktarı yazarsın → teslimatta gelen miktar yazılır ve stoğa eklenir.</p>
       </section>

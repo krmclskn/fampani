@@ -28,7 +28,8 @@ async function connect(): Promise<Driver> {
     const num = { serialize: (x: unknown) => String(x), parse: (x: string) => Number(x) };
     const sql = postgres(url, {
       prepare: false, // Supabase transaction pooler hazır ifadeleri desteklemez
-      max: 5, idle_timeout: 20, connect_timeout: 15,
+      // Sunucusuz ortamda boşta kalan bağlantıyı erken bırak, eski bağlantıları yenile.
+      max: 5, idle_timeout: 15, max_lifetime: 60 * 10, connect_timeout: 10,
       types: { int8: { to: 20, from: [20], ...num }, numeric: { to: 1700, from: [1700], ...num } },
     });
     const wrap = (s: { unsafe: (q: string, p: never[]) => PromiseLike<unknown> }): Exec => ({
@@ -80,9 +81,29 @@ function toPg(sql: string): string {
   return out;
 }
 
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const errCode = (e: unknown) => String((e as { code?: string })?.code ?? "");
+/** Bağlantı hiç kurulamadı: sorgu sunucuya ulaşmadı, her sorgu güvenle yeniden denenebilir. */
+const CONNECT_FAIL = new Set(["CONNECT_TIMEOUT", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH"]);
+/** Bağlantı yolda koptu: yalnızca okuma sorguları yeniden denenir (yazma işlenmiş olabilir). */
+const DROPPED = new Set(["ECONNRESET", "EPIPE", "ETIMEDOUT", "CONNECTION_CLOSED", "CONNECTION_ENDED", "CONNECTION_DESTROYED", "57P01", "57P03", "08006", "08003", "08001"]);
+const isRead = (sql: string) => /^\s*(select|with)\b/i.test(sql) && !/\b(insert|update|delete)\b/i.test(sql);
+const retryable = (e: unknown, sql: string | null) =>
+  CONNECT_FAIL.has(errCode(e)) || (sql !== null && isRead(sql) && DROPPED.has(errCode(e))) ||
+  /Max client connections|too many clients|remaining connection slots/i.test(String((e as Error)?.message));
+
 async function q(sql: string, p: P[]): Promise<Row[]> {
-  const ex = als.getStore() ?? (await driver());
-  return ex.query(toPg(sql), p);
+  const inTx = als.getStore();
+  if (inTx) return inTx.query(toPg(sql), p);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await (await driver()).query(toPg(sql), p);
+    } catch (e) {
+      if (attempt >= 2 || !retryable(e, sql)) throw e;
+      console.warn(`[db] geçici bağlantı hatası (${errCode(e) || (e as Error)?.message}), yeniden deneniyor`);
+      await wait(250 * (attempt + 1));
+    }
+  }
 }
 
 export async function all<T>(sql: string, ...p: P[]): Promise<T[]> {
@@ -108,8 +129,16 @@ export async function run(sql: string, ...p: P[]): Promise<number> {
 /** İçindeki tüm sorgular tek işlemde çalışır; hata olursa hepsi geri alınır. */
 export async function tx<T>(fn: () => Promise<T>): Promise<T> {
   if (als.getStore()) return fn();
-  const d = await driver();
-  return d.begin((e) => als.run(e, fn));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const d = await driver();
+      return await d.begin((e) => als.run(e, fn));
+    } catch (e) {
+      // Yalnızca bağlantı kurulamadıysa: işlem hiç başlamadı, tekrar denemek güvenli.
+      if (attempt >= 2 || !retryable(e, null)) throw e;
+      await wait(250 * (attempt + 1));
+    }
+  }
 }
 
 export function hashPassword(pw: string): string {
@@ -189,6 +218,9 @@ const OPEN_ORDER = "('talep','onay_bekliyor','onaylandi','siparis','eksik_teslim
  * sipariş verilmeden stok yeniden minimuma çıktıysa talebi kapatır.
  */
 export async function ensureStockRequests(userId: number) {
+  // Aynı anda açılan iki sayfa aynı ürüne iki talep açmasın.
+  await tx(async () => {
+  await get("SELECT pg_advisory_xact_lock(7301)");
   const now = new Date().toISOString();
   await run(`UPDATE purchases SET status='reddedildi', decision_note='Stok yeniden yeterli', decided_at=?
        WHERE status='talep' AND item_id IN (SELECT id FROM stock_items WHERE qty >= min_level)`, now);
@@ -196,4 +228,5 @@ export async function ensureStockRequests(userId: number) {
        SELECT i.id, GREATEST(i.min_level*2 - i.qty, 1), i.qty, 'Otomatik: stok minimumun altında', ?::bigint, ?::text
        FROM stock_items i WHERE i.active=1 AND i.min_level>0 AND i.qty < i.min_level
          AND NOT EXISTS (SELECT 1 FROM purchases p WHERE p.item_id=i.id AND p.status IN ${OPEN_ORDER})`, userId, now);
+  });
 }
