@@ -1,5 +1,6 @@
-import { Fold, Submit } from "@/components/client";
-import { itemSave, orderCancel, orderPlace, orderReceive, stockCount } from "@/lib/actions";
+import Link from "next/link";
+import { CountHint, Fold, Submit } from "@/components/client";
+import { itemSave, orderCancel, orderPlace, orderReceive, stockCountBulk, stockReorder } from "@/lib/actions";
 import { can, requireUser } from "@/lib/auth";
 import { all, ensureStockRequests } from "@/lib/db";
 import { stockItems, type ItemV } from "@/lib/queries";
@@ -42,8 +43,9 @@ function ByLocation({ id, list, render, sub = "border-line" }: { id: string; lis
   );
 }
 
-export default async function Stok() {
+export default async function Stok({ searchParams }: { searchParams: Promise<{ sirala?: string }> }) {
   const u = await requireUser();
+  const canSort = can.editStock(u), sortMode = canSort && (await searchParams).sirala === "1";
   await ensureStockRequests(u.id);
   const items = await stockItems(), manage = can.orderPurchase(u);
   const orders = await all<Order>(
@@ -106,52 +108,71 @@ export default async function Stok() {
       </Fold>
 
       <section className="grid gap-2">
-        <div className="flex items-baseline justify-between gap-2 px-1">
-          <h2 className="h2">Stok ürünleri</h2>
-          <span className="muted">{items.length} ürün · {locs.length} kategori</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <h2 className="h2">Stok ürünleri <span className="muted font-normal">· {items.length} ürün, {locs.length} kategori</span></h2>
+          {canSort && (sortMode
+            ? <Link href="/stok" className="btn btn-sm btn-primary">Sıralama bitti</Link>
+            : <Link href="/stok?sirala=1" className="btn btn-sm">↕ Sırayı düzenle</Link>)}
         </div>
+        {sortMode
+          ? <p className="muted px-1">Okları kullanarak ürünlerin sayım listesindeki sırasını ayarla. Değişiklik hemen kaydedilir.</p>
+          : <p className="muted px-1">Saydığın ürünlerin miktarını yaz, en alttaki <b className="text-ink">Sayımı kaydet</b> ile hepsini birden kaydet. Boş bıraktığın ürün değişmez.</p>}
         {locs.map((loc) => {
           const list = items.filter((i) => i.location === loc);
           const lowHere = list.filter((i) => i.min_level > 0 && i.qty < i.min_level).length;
           return (
-            <Fold key={loc} id={`stok:yer:${loc}`} title={loc} count={list.length}
+            <Fold key={loc} id={`stok:yer:${loc}`} title={loc} count={list.length} defaultOpen={sortMode}
               meta={lowHere ? <span className="badge badge-bad">{lowHere} minimum altı</span> : null}>
-            <ul>
-              {list.map((i) => {
-                const under = i.min_level > 0 && i.qty < i.min_level;
-                return (
-                  <li key={i.id} className="border-b border-line py-2 last:border-0">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="min-w-40 flex-1">
-                        <span className="font-medium">{i.name}</span>
-                        <span className="block text-sm text-muted">minimum {fmtQty(i.min_level)} {i.unit}</span>
-                      </span>
-                      <span className="flex items-center gap-2">
-                        {under && <span className="badge badge-bad">Minimum altı</span>}
-                        <span className="text-lg font-semibold tabular-nums">{fmtQty(i.qty)} <span className="text-sm font-normal text-muted">{i.unit}</span></span>
-                      </span>
-                      <form action={stockCount} className="flex items-center gap-2">
-                        <input type="hidden" name="item_id" value={i.id} />
-                        <input name="counted" inputMode="decimal" className="input w-24" placeholder="Sayım" aria-label={`${i.name} sayılan miktar (${i.unit})`} required />
-                        <Submit className="btn btn-sm">Kaydet</Submit>
-                      </form>
-                    </div>
-                    {can.editStock(u) && (
-                      <details className="mt-1">
-                        <summary className="text-xs font-medium text-muted underline underline-offset-2">Ürünü düzenle</summary>
-                        <div className="mt-2 rounded-lg bg-bg p-3"><ItemForm i={i} /></div>
-                      </details>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+              <ul>
+                {list.map((i, idx) => {
+                  const under = i.min_level > 0 && i.qty < i.min_level;
+                  return (
+                    <li key={i.id} className="border-b border-line py-2 last:border-0">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        {sortMode && (
+                          <form action={stockReorder} className="flex gap-1">
+                            <button type="submit" name="move" value={`${i.id}:top`} className="btn btn-sm px-2" disabled={idx === 0} aria-label={`${i.name} en üste`} title="En üste">⤒</button>
+                            <button type="submit" name="move" value={`${i.id}:up`} className="btn btn-sm px-2" disabled={idx === 0} aria-label={`${i.name} yukarı`} title="Yukarı">↑</button>
+                            <button type="submit" name="move" value={`${i.id}:down`} className="btn btn-sm px-2" disabled={idx === list.length - 1} aria-label={`${i.name} aşağı`} title="Aşağı">↓</button>
+                          </form>
+                        )}
+                        <span className="min-w-40 flex-1">
+                          <span className="font-medium">{i.name}</span>
+                          <span className="block text-sm text-muted">minimum {fmtQty(i.min_level)} {i.unit}</span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          {under && <span className="badge badge-bad">Minimum altı</span>}
+                          <span className="text-lg font-semibold tabular-nums">{fmtQty(i.qty)} <span className="text-sm font-normal text-muted">{i.unit}</span></span>
+                        </span>
+                        {!sortMode && (
+                          <label className="flex items-center gap-2">
+                            <input form="sayim" name={`c_${i.id}`} inputMode="decimal" className="input w-24" placeholder="Sayım" aria-label={`${i.name} sayılan miktar (${i.unit})`} autoComplete="off" />
+                            <span className="w-10 text-sm text-muted">{i.unit}</span>
+                          </label>
+                        )}
+                      </div>
+                      {!sortMode && can.editStock(u) && (
+                        <details className="mt-1">
+                          <summary className="text-xs font-medium text-muted underline underline-offset-2">Ürünü düzenle</summary>
+                          <div className="mt-2 rounded-lg bg-bg p-3"><ItemForm i={i} /></div>
+                        </details>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             </Fold>
           );
         })}
+        {!sortMode && (
+          <form id="sayim" action={stockCountBulk} className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface p-3 shadow-md">
+            <CountHint form="sayim" />
+            <Submit className="btn btn-primary">Sayımı kaydet</Submit>
+          </form>
+        )}
       </section>
 
-      {can.editStock(u) && (
+      {can.editStock(u) && !sortMode && (
         <Fold id="stok:yeni" title="+ Yeni ürün ekle">
           <ItemForm />
         </Fold>

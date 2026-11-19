@@ -1,7 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { audit, ensureStockRequests, stockMove, get, hashPassword, run, todayStr, tx, verifyPassword } from "./db";
+import { revalidatePath } from "next/cache";
+import { all, audit, ensureStockRequests, stockMove, get, hashPassword, run, todayStr, tx, verifyPassword } from "./db";
 import { can, createSession, destroySession, requireUser, ROLE_LABEL, type Role, type User } from "./auth";
 import { fail, ok } from "./flash";
 import { EXCEPTION_REASONS, EXCEPTION_ROUTE, LOCATIONS, UNITS, parseNum, str } from "./util";
@@ -122,9 +123,13 @@ export async function taskCancel(f: FormData) {
 
 /* ---------- Yapılacaklar ---------- */
 
-type Todo = { id: number; title: string; status: string; assignee_id: number | null; assignee_role: string | null; created_by: number | null; kind: string };
-const getTodo = async (tid: number) => await get<Todo>("SELECT id,title,status,assignee_id,assignee_role,created_by,kind FROM tasks WHERE id=? AND kind='is'", tid);
+type Todo = { id: number; title: string; status: string; assignee_id: number | null; assignee2_id: number | null; assignee_role: string | null;
+  created_by: number | null; kind: string; prio: number; urgent: number; started_at: string | null };
+const getTodo = async (tid: number) => await get<Todo>(
+  "SELECT id,title,status,assignee_id,assignee2_id,assignee_role,created_by,kind,prio,urgent,started_at FROM tasks WHERE id=? AND kind='is'", tid);
 const personName = async (uid: number) => (await get<{ name: string }>("SELECT name FROM users WHERE id=? AND active=1", uid))?.name;
+const isMine = (t: Todo, u: User) => t.assignee_id === u.id || t.assignee2_id === u.id;
+const prioOf = (f: FormData) => { const n = Number(f.get("prio")); return n === 1 || n === 3 ? n : 2; };
 
 /** Aşamanın bağlı olduğu ilk aşamayı (işi) açan kişi. */
 async function rootCreator(tid: number): Promise<number | null> {
@@ -146,38 +151,45 @@ async function resolveAssignee(u: User, who: string, allowOthers: boolean): Prom
   return { id: target };
 }
 
-/** Yeni iş notu: kendine, sahipsiz havuza ya da (yetkiliyse) başkasına. */
+/** İşi bitirirken işaretlenen kişiler (işaretleyen her zaman dahil). */
+async function saveParticipants(taskId: number, f: FormData, u: User) {
+  const ids = new Set<number>([u.id]);
+  for (const v of f.getAll("p")) { const n = Number(v); if (n) ids.add(n); }
+  await run("DELETE FROM task_participants WHERE task_id=?", taskId);
+  for (const uid of ids) {
+    if (uid === u.id || (await personName(uid)))
+      await run("INSERT INTO task_participants(task_id,user_id) VALUES(?,?) ON CONFLICT DO NOTHING", taskId, uid);
+  }
+  return ids.size;
+}
+
+/** Yeni iş notu: kendine, sahipsiz havuza ya da (yetkiliyse) başkasına. Öncelik 1-2-3, acil işareti. */
 export async function todoAdd(f: FormData) {
   const u = await requireUser();
   const title = str(f.get("title"));
   if (!title) return fail("Yapılacak işi yaz.");
   const who = str(f.get("assignee")) ?? "ben", due = str(f.get("due"));
   if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) return fail("Son tarih geçersiz.");
-  let assignee: number | null = u.id;
-  if (who === "havuz") assignee = null;
-  else if (who !== "ben") {
-    const target = Number(who);
-    if (target !== u.id && !can.assignTasks(u)) return fail("Başkasına iş atama yetkin yok; kendine yaz ya da sahipsiz bırak.");
-    if (!await personName(target)) return fail("Kişi bulunamadı.");
-    assignee = target;
-  }
-  const tid = await run("INSERT INTO tasks(date,title,detail,kind,assignee_id,due,created_by,created_at) VALUES(?,?,?,'is',?,?,?,?)",
-    todayStr(), title, str(f.get("detail")), assignee, due, u.id, now());
+  const r = await resolveAssignee(u, who, can.assignTasks(u));
+  if (typeof r === "string") return fail(r);
+  const assignee = r.id, prio = prioOf(f), urgent = f.get("urgent") ? 1 : 0;
+  const tid = await run("INSERT INTO tasks(date,title,detail,kind,assignee_id,due,prio,urgent,created_by,created_at) VALUES(?,?,?,'is',?,?,?,?,?,?)",
+    todayStr(), title, str(f.get("detail")), assignee, due, prio, urgent, u.id, now());
   const who2 = assignee && assignee !== u.id ? await personName(assignee) : null;
-  await audit(u.id, "Yapılacak iş ekledi", "task", tid, `${title}${who2 ? ` → ${who2}` : ""}`);
+  await audit(u.id, "Yapılacak iş ekledi", "task", tid, `${title}${who2 ? ` → ${who2}` : ""}${urgent ? " · acil" : ""} · öncelik ${prio}`);
   return ok(assignee === u.id ? "Listene eklendi." : assignee ? `${who2} kişisine atandı.` : "Sahipsiz işlere eklendi.");
 }
 
 /**
- * İşin şu anki aşamasını bitirir: isteğe bağlı not; `next_title` doluysa yeni aşama açılır (iş devam eder),
- * boşsa iş tamamlanır. Yeni aşama herkes tarafından herhangi birine aktarılabilir.
+ * İşin şu anki aşamasını bitirir: not ve işe katılanlar kaydedilir; `next_title` doluysa yeni aşama açılır
+ * (iş "devam ediyor"a geçer), boşsa iş tamamlanır.
  */
 export async function todoFinish(f: FormData) {
   const u = await requireUser();
   const t = await getTodo(id(f));
   if (!t) return fail("İş bulunamadı.");
-  const mine = t.assignee_id === u.id, boss = can.assignTasks(u);
-  if (t.status !== "atandi" || !(mine || boss || !t.assignee_id)) return fail("Bu işi bitiremezsin.");
+  const boss = can.assignTasks(u);
+  if (t.status !== "atandi" || !(isMine(t, u) || boss || !t.assignee_id)) return fail("Bu işi bitiremezsin.");
   const note = str(f.get("note")), next = str(f.get("next_title")), due = str(f.get("next_due"));
   if (f.get("mode") === "devam" && !next) return fail("Devam aşamasında ne yapılacağını yaz.");
   if (due && !/^\d{4}-\d{2}-\d{2}$/.test(due)) return fail("Devam aşamasının son tarihi geçersiz.");
@@ -188,17 +200,21 @@ export async function todoFinish(f: FormData) {
     nextWho = r;
   }
   const nextName = nextWho?.id && nextWho.id !== u.id ? await personName(nextWho.id) : null;
+  let team = 1;
   await tx(async () => {
-    await run("UPDATE tasks SET status='tamamlandi', note=COALESCE(?,note), assignee_id=COALESCE(assignee_id,?), done_by=?, done_at=? WHERE id=?",
-      note, u.id, u.id, now(), t.id);
+    await run(`UPDATE tasks SET status='tamamlandi', note=COALESCE(?,note), assignee_id=COALESCE(assignee_id,?), started_at=COALESCE(started_at,?),
+               done_by=?, done_at=? WHERE id=?`, note, u.id, now(), u.id, now(), t.id);
+    team = await saveParticipants(t.id, f, u);
     await audit(u.id, next ? "Aşamayı bitirdi" : "İşi tamamladı", "task", t.id, note ? `${t.title} — ${note}` : t.title);
     if (next && nextWho) {
-      const nid = await run("INSERT INTO tasks(date,title,detail,kind,assignee_id,due,parent_id,created_by,created_at) VALUES(?,?,?,'is',?,?,?,?,?)",
-        todayStr(), next, str(f.get("next_detail")), nextWho.id, due, t.id, u.id, now());
+      const nid = await run(`INSERT INTO tasks(date,title,detail,kind,assignee_id,due,parent_id,prio,urgent,started_at,created_by,created_at)
+                             VALUES(?,?,?,'is',?,?,?,?,?,?,?,?)`,
+        todayStr(), next, str(f.get("next_detail")), nextWho.id, due, t.id, t.prio, t.urgent, now(), u.id, now());
       await audit(u.id, "Devam aşaması ekledi", "task", nid, `${t.title} → ${next}${nextName ? ` (${nextName})` : ""}`);
     }
   });
-  if (!next) return ok(note ? "İş tamamlandı, not kaydedildi." : "İş tamamlandı.");
+  const withTeam = team > 1 ? ` (${team} kişi)` : "";
+  if (!next) return ok(note ? `İş tamamlandı${withTeam}, not kaydedildi.` : `İş tamamlandı${withTeam}.`);
   return ok(nextWho?.id === u.id ? `Yeni aşama: "${next}" — sende.` : nextWho?.id ? `Yeni aşama: "${next}" — ${nextName} kişisine aktarıldı.` : `Yeni aşama: "${next}" — sahipsiz, isteyen üstlenir.`);
 }
 
@@ -206,35 +222,67 @@ export async function todoAct(f: FormData) {
   const u = await requireUser();
   const t = await getTodo(id(f)), op = str(f.get("op"));
   if (!t) return fail("İş bulunamadı.");
-  const mine = t.assignee_id === u.id, boss = can.assignTasks(u);
+  const mine = isMine(t, u), boss = can.assignTasks(u);
   if (op === "ustlen") {
-    if (t.status !== "atandi" || (t.assignee_id && !mine && !boss)) return fail("Bu iş başkasına atanmış.");
-    await run("UPDATE tasks SET assignee_id=?, assignee_role=NULL WHERE id=?", u.id, t.id);
-    await audit(u.id, "İşi üstlendi", "task", t.id, t.title);
-    return ok("İş artık senin listende.");
+    // İşi en fazla iki kişi üstlenir: boşsa birinci, doluysa ikinci kişi olunur.
+    if (t.status !== "atandi") return fail("Bu iş kapanmış.");
+    if (mine) return fail("Bu iş zaten sende.");
+    if (!t.assignee_id) await run("UPDATE tasks SET assignee_id=?, assignee_role=NULL WHERE id=?", u.id, t.id);
+    else if (!t.assignee2_id) await run("UPDATE tasks SET assignee2_id=? WHERE id=?", u.id, t.id);
+    else return fail("Bu işi zaten iki kişi üstlenmiş.");
+    await audit(u.id, t.assignee_id ? "İşe ortak oldu" : "İşi üstlendi", "task", t.id, t.title);
+    return ok(t.assignee_id ? "İşe ikinci kişi olarak katıldın." : "İş artık senin listende.");
+  }
+  if (op === "birak") {
+    if (t.status !== "atandi" || !mine) return fail("Bu iş sende değil.");
+    if (t.assignee2_id === u.id) await run("UPDATE tasks SET assignee2_id=NULL WHERE id=?", t.id);
+    else await run("UPDATE tasks SET assignee_id=assignee2_id, assignee2_id=NULL WHERE id=?", t.id);
+    await audit(u.id, "İşi bıraktı", "task", t.id, t.title);
+    return ok("İşi bıraktın.");
+  }
+  if (op === "basla") {
+    if (t.status !== "atandi" || !(mine || boss || !t.assignee_id)) return fail("Bu işe başlayamazsın.");
+    await run("UPDATE tasks SET started_at=?, assignee_id=COALESCE(assignee_id,?) WHERE id=?", now(), u.id, t.id);
+    await audit(u.id, "İşe başladı", "task", t.id, t.title);
+    return ok("İş devam edenlere taşındı.");
+  }
+  if (op === "oncelik") {
+    if (t.status !== "atandi" || !(boss || mine || t.created_by === u.id)) return fail("Bu işin önceliğini değiştiremezsin.");
+    const prio = prioOf(f), urgent = f.get("urgent") ? 1 : 0;
+    await run("UPDATE tasks SET prio=?, urgent=? WHERE id=?", prio, urgent, t.id);
+    await audit(u.id, "İşin önceliğini değiştirdi", "task", t.id, `${t.title}: öncelik ${prio}${urgent ? ", acil" : ""}`);
+    return ok(`Öncelik ${prio}${urgent ? ", acil" : ""} olarak kaydedildi.`);
   }
   if (op === "tamamla") {
     if (t.status !== "atandi" || !(mine || boss || !t.assignee_id)) return fail("Bu işi tamamlayamazsın.");
     await run("UPDATE tasks SET status='tamamlandi', assignee_id=COALESCE(assignee_id,?), done_by=?, done_at=? WHERE id=?", u.id, u.id, now(), t.id);
+    await run("INSERT INTO task_participants(task_id,user_id) VALUES(?,?) ON CONFLICT DO NOTHING", t.id, u.id);
     await audit(u.id, "İşi tamamladı", "task", t.id, t.title);
     return ok("Tamamlandı.");
   }
   if (op === "gerial") {
     if (t.status !== "tamamlandi" || !(mine || boss)) return fail("Bu iş geri alınamaz.");
-    await run("UPDATE tasks SET status='atandi', done_by=NULL, done_at=NULL WHERE id=?", t.id);
+    await tx(async () => {
+      await run("UPDATE tasks SET status='atandi', done_by=NULL, done_at=NULL WHERE id=?", t.id);
+      await run("DELETE FROM task_participants WHERE task_id=?", t.id);
+    });
     await audit(u.id, "İşi yeniden açtı", "task", t.id, t.title);
     return ok("İş yeniden açıldı.");
   }
   if (op === "ata") {
     const who = str(f.get("assignee")) ?? "", target = who === "havuz" ? null : Number(who);
+    const who2 = str(f.get("assignee2")) ?? "", target2 = !who2 || who2 === "yok" ? null : Number(who2);
     if (!(boss || mine || t.created_by === u.id)) return fail("Bu işi atama yetkin yok.");
     // Üzerindeki işi herkes başkasına devredebilir; başkasının işini yalnızca yönetenler taşır.
-    if (target && target !== u.id && !(boss || mine)) return fail("Bu işi başkasına aktaramazsın; sahipsiz bırakabilirsin.");
+    if ((target && target !== u.id) || (target2 && target2 !== u.id)) { if (!(boss || mine)) return fail("Bu işi başkasına aktaramazsın; sahipsiz bırakabilirsin."); }
     if (target && !await personName(target)) return fail("Kişi bulunamadı.");
-    await run("UPDATE tasks SET assignee_id=?, assignee_role=NULL WHERE id=?", target, t.id);
-    const tn = target ? await personName(target) : null;
-    await audit(u.id, "İşi atadı", "task", t.id, `${t.title} → ${tn ?? "sahipsiz"}`);
-    return ok(tn ? `${tn} kişisine atandı.` : "İş sahipsiz işlere bırakıldı.");
+    if (target2 && !await personName(target2)) return fail("İkinci kişi bulunamadı.");
+    if (!target && target2) return fail("Önce birinci kişiyi seç.");
+    const second = target2 && target2 !== target ? target2 : null;
+    await run("UPDATE tasks SET assignee_id=?, assignee2_id=?, assignee_role=NULL WHERE id=?", target, second, t.id);
+    const tn = target ? await personName(target) : null, tn2 = second ? await personName(second) : null;
+    await audit(u.id, "İşi atadı", "task", t.id, `${t.title} → ${tn ?? "sahipsiz"}${tn2 ? ` + ${tn2}` : ""}`);
+    return ok(tn ? `${tn}${tn2 ? ` ve ${tn2}` : ""} kişisine atandı.` : "İş sahipsiz işlere bırakıldı.");
   }
   if (op === "sil") {
     if (!(boss || t.created_by === u.id || (await rootCreator(t.id)) === u.id)) return fail("Yalnızca işi açan kişi ya da yönetici iptal edebilir.");
@@ -399,6 +447,52 @@ export async function stockCount(f: FormData) {
     await ensureStockRequests(u.id);
   });
   return ok(`${it.name}: ${counted} ${it.unit} olarak kaydedildi.`);
+}
+
+/** Sayım listesindeki tüm doldurulan satırları tek seferde işler (alan adları: c_<ürün id>). */
+export async function stockCountBulk(f: FormData) {
+  const u = await requireUser();
+  const entries: [number, number][] = [], bad: number[] = [];
+  for (const [k, v] of f.entries()) {
+    if (!k.startsWith("c_") || typeof v !== "string" || !v.trim()) continue;
+    const n = parseNum(v);
+    if (n == null || n < 0) bad.push(Number(k.slice(2)));
+    else entries.push([Number(k.slice(2)), n]);
+  }
+  const badNames = bad.length ? (await all<{ name: string }>(`SELECT name FROM stock_items WHERE id IN (${bad.map(() => "?").join(",")})`, ...bad)).map((r) => r.name) : [];
+  const badMsg = badNames.length ? ` Okunamayan miktar: ${badNames.join(", ")} — tekrar yaz.` : "";
+  if (!entries.length) return fail(badMsg ? badMsg.trim() : "Sayılan miktarı en az bir ürüne yaz.");
+  let changed = 0;
+  await tx(async () => {
+    for (const [iid, counted] of entries) {
+      const it = await getItem(iid);
+      if (!it) continue;
+      const cid = await run("INSERT INTO stock_counts(item_id,previous,counted,status,counted_by,counted_at) VALUES(?,?,?,'islendi',?,?)", it.id, it.qty, counted, u.id, now());
+      if (counted !== it.qty) { await stockMove(it.id, counted - it.qty, "sayim", `count:${cid}`, null, u.id); changed++; }
+      await audit(u.id, "Stok saydı", "stock_item", it.id, `${it.name}: ${it.qty} → ${counted} ${it.unit}`);
+    }
+    await ensureStockRequests(u.id);
+  });
+  const msg = `${entries.length} ürünün sayımı kaydedildi${changed ? `, ${changed} tanesinde miktar değişti` : ""}.${badMsg}`;
+  return badMsg ? fail(msg) : ok(msg);
+}
+
+/** Sayım listesinde ürünü kategorisi içinde yukarı / aşağı / en üste taşır. */
+export async function stockReorder(f: FormData) {
+  const u = await requireUser();
+  if (!can.editStock(u)) return fail("Sıralamayı değiştirme yetkin yok.");
+  const [sid, dir] = String(f.get("move") ?? "").split(":");
+  const it = await get<{ id: number; location: string }>("SELECT id,location FROM stock_items WHERE id=? AND active=1", Number(sid));
+  if (!it) return fail("Ürün bulunamadı.");
+  await tx(async () => {
+    const list = (await all<{ id: number }>("SELECT id FROM stock_items WHERE active=1 AND location=? ORDER BY position, name, id", it.location)).map((r) => r.id);
+    const i = list.indexOf(it.id);
+    if (dir === "up" && i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
+    else if (dir === "down" && i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]];
+    else if (dir === "top" && i > 0) { list.splice(i, 1); list.unshift(it.id); }
+    for (let k = 0; k < list.length; k++) await run("UPDATE stock_items SET position=? WHERE id=?", k + 1, list[k]);
+  });
+  revalidatePath("/stok");
 }
 
 /* ---------- Ayarlar ---------- */

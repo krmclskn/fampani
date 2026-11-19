@@ -12,7 +12,7 @@ const SCHEMA = fs.readFileSync(path.join(ROOT, "db", "schema.sql"), "utf8");
 
 // Bağımlılık sırasına göre (yabancı anahtarlar önce gelen tablolara bakar).
 const TABLES = [
-  "users", "sessions", "settings", "areas", "suppliers", "stock_items", "checklist_items", "shifts", "tasks", "handovers",
+  "users", "sessions", "settings", "areas", "suppliers", "stock_items", "checklist_items", "shifts", "tasks", "task_participants", "handovers",
   "day_closings", "stock_movements", "stock_counts", "purchases", "audit_log", "products", "recipe_items", "payment_channels",
   "sales_days", "tickets", "sale_lines", "sale_payments", "waste", "item_prices", "expense_categories", "expense_templates",
   "expenses", "revenue_days", "revenue_lump", "sup_purchases", "sup_purchase_lines", "sup_payments", "debts", "debt_payments",
@@ -77,7 +77,8 @@ async function importFrom(db, from, force) {
   await db.tx(async (t) => {
     if (existing) await t.exec(`TRUNCATE ${TABLES.join(", ")} RESTART IDENTITY CASCADE`);
     for (const table of TABLES) {
-      const rows = await src.rows(table);
+      // Eski kaynakta sonradan eklenen tablo olmayabilir.
+      const rows = await src.rows(table).catch(() => []);
       source[table] = rows.length;
       if (!rows.length) continue;
       const cols = Object.keys(rows[0]);

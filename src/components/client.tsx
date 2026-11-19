@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 
 type NavLink = { href: string; label: string; count?: number };
@@ -52,18 +53,47 @@ export function Nav({ main, ops }: { main: NavLink[]; ops: NavLink[] }) {
   );
 }
 
-export function Flash() {
+type Msg = { kind: "ok" | "hata"; msg: string; t: number };
+
+function readFlash(): Msg | null {
+  try {
+    const raw = document.cookie.split("; ").find((c) => c.startsWith("flash="));
+    if (!raw) return null;
+    document.cookie = "flash=; path=/; max-age=0";
+    return JSON.parse(decodeURIComponent(decodeURIComponent(raw.slice(6))));
+  } catch { return null; }
+}
+
+/**
+ * İşlem mesajı: sayfanın altında kısa süre görünen bildirim. Sayfa yerinde yenilendiği için kaydırma yeri korunur.
+ * `stamp` her sunucu yenilemesinde değişir; mesaj çerezi o an okunur. Adres çubuğundaki ?ok= / ?hata= de desteklenir.
+ */
+export function Flash({ stamp }: { stamp?: number }) {
   const sp = useSearchParams();
-  const ok = sp.get("ok"), hata = sp.get("hata");
-  if (!ok && !hata) return null;
+  const [m, setM] = useState<Msg | null>(null);
+  useEffect(() => {
+    const fromCookie = readFlash();
+    const q = sp.get("hata") ? { kind: "hata" as const, msg: sp.get("hata")!, t: 0 } : sp.get("ok") ? { kind: "ok" as const, msg: sp.get("ok")!, t: 0 } : null;
+    const next = fromCookie ?? q;
+    if (!next) return;
+    // Çerez dış kaynaktan (tarayıcı) okunuyor; durumu burada güncellemek bilinçli.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setM(next);
+    const h = setTimeout(() => setM((cur) => (cur === next ? null : cur)), next.kind === "hata" ? 8000 : 3500);
+    return () => clearTimeout(h);
+  }, [stamp, sp]);
+  if (!m) return null;
   return (
-    <div
-      role={hata ? "alert" : "status"}
-      className={`mb-4 rounded-lg border px-4 py-3 text-sm font-medium ${
-        hata ? "border-[#efc4bf] bg-[#f8dcd9] text-bad" : "border-[#bcdcd2] bg-[#dcefe9] text-accent"
-      }`}
-    >
-      {hata ?? ok}
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+      <div
+        role={m.kind === "hata" ? "alert" : "status"}
+        className={`pointer-events-auto flex max-w-lg items-start gap-3 rounded-xl border px-4 py-3 text-sm font-medium shadow-lg ${
+          m.kind === "hata" ? "border-[#efc4bf] bg-[#f8dcd9] text-bad" : "border-[#bcdcd2] bg-[#dcefe9] text-accent"
+        }`}
+      >
+        <span className="flex-1">{m.msg}</span>
+        <button type="button" onClick={() => setM(null)} className="text-xs underline underline-offset-2" aria-label="Bildirimi kapat">Kapat</button>
+      </div>
     </div>
   );
 }
@@ -105,4 +135,18 @@ export function Fold({ id, title, count, tone, meta, defaultOpen = false, classN
       <div className="mt-2">{children}</div>
     </details>
   );
+}
+
+/** Sayım formuna bağlı kaç kutunun doldurulduğunu gösterir. */
+export function CountHint({ form }: { form: string }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const f = document.getElementById(form) as HTMLFormElement | null;
+    if (!f) return;
+    const count = () => setN([...f.elements].filter((e) => e instanceof HTMLInputElement && e.name.startsWith("c_") && e.value.trim()).length);
+    document.addEventListener("input", count);
+    f.addEventListener("reset", () => setTimeout(count));
+    return () => document.removeEventListener("input", count);
+  }, [form]);
+  return <span className="text-sm text-muted">{n ? <><b className="text-ink">{n}</b> ürünün sayımı yazıldı</> : "Henüz sayım yazılmadı"}</span>;
 }

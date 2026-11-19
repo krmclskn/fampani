@@ -27,4 +27,4 @@ export type ItemV = {
 export const stockItems = () =>
   all<ItemV>(`SELECT i.*, s.name AS supplier,
     (SELECT id FROM purchases p WHERE p.item_id=i.id AND p.status IN ('talep','onay_bekliyor','onaylandi','siparis') LIMIT 1) AS open_purchase
-    FROM stock_items i LEFT JOIN suppliers s ON s.id=i.supplier_id WHERE i.active=1 ORDER BY i.location, i.name`);
+    FROM stock_items i LEFT JOIN suppliers s ON s.id=i.supplier_id WHERE i.active=1 ORDER BY i.location, i.position, i.name`);

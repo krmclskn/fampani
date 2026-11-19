@@ -12,7 +12,7 @@ export default async function Bugun() {
   const lists = await all<{ kind: string; area: string; total: number; done: number; blocked: number }>(
     `SELECT t.kind, a.name AS area, COUNT(*) AS total, SUM((t.status IN ('tamamlandi','kontrol'))::int) AS done, SUM((t.status='engellendi')::int) AS blocked
      FROM tasks t JOIN areas a ON a.id=t.area_id WHERE t.date=? AND t.kind<>'is' GROUP BY t.kind, a.id, a.name ORDER BY t.kind, a.id`, today);
-  const mine = await tasksWhere("t.status='atandi' AND ((t.kind='is' AND (t.assignee_id=? OR t.assignee_role=?)) OR (t.kind<>'is' AND t.date=? AND t.assignee_id=?))", u.id, u.role, today, u.id);
+  const mine = await tasksWhere("t.status='atandi' AND ((t.kind='is' AND (t.assignee_id=?1 OR t.assignee2_id=?1 OR t.assignee_role=?2)) OR (t.kind<>'is' AND t.date=?3 AND t.assignee_id=?1))", u.id, u.role, today);
 
   return (
     <div className="grid gap-5">

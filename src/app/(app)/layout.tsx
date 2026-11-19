@@ -7,7 +7,7 @@ import { get } from "@/lib/db";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const u = await requireUser();
   const c = async (sql: string, ...p: (string | number)[]) => (await get<{ c: number }>(sql, ...p))?.c ?? 0;
-  const myTasks = await c("SELECT COUNT(*) AS c FROM tasks WHERE status='atandi' AND kind='is' AND assignee_id=?", u.id);
+  const myTasks = await c("SELECT COUNT(*) AS c FROM tasks WHERE status='atandi' AND kind='is' AND (assignee_id=? OR assignee2_id=?)", u.id, u.id);
   const main = can.seeFinance(u)
     ? [{ href: "/finans", label: "Panel" }, { href: "/ciro", label: "Ciro" }, { href: "/giderler", label: "Giderler" }, { href: "/tedarikciler", label: "Tedarikçiler" }, { href: "/borclar", label: "Borçlar" }]
     : [];
@@ -42,7 +42,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Nav main={main} ops={ops} />
       </header>
       <main className="mx-auto max-w-5xl px-4 py-5 sm:px-6">
-        <Suspense fallback={null}><Flash /></Suspense>
+        <Suspense fallback={null}><Flash stamp={Date.now()} /></Suspense>
         {children}
       </main>
     </div>

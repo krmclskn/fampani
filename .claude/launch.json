@@ -4,8 +4,28 @@
     {
       "name": "fampani",
       "runtimeExecutable": "/usr/bin/env",
-      "runtimeArgs": ["PATH=/Users/keremcaliskan/.local/node/bin:/usr/bin:/bin:/usr/sbin:/sbin", "npm", "run", "dev"],
+      "runtimeArgs": [
+        "PATH=/Users/keremcaliskan/.local/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "npm",
+        "run",
+        "dev"
+      ],
       "port": 3000
+    },
+    {
+      "name": "fampani-yerel",
+      "runtimeExecutable": "/usr/bin/env",
+      "runtimeArgs": [
+        "PATH=/Users/keremcaliskan/.local/node/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "DATABASE_URL=",
+        "FAMPANI_YEREL=1",
+        "npx",
+        "next",
+        "dev",
+        "-p",
+        "3001"
+      ],
+      "port": 3001
     }
   ]
 }

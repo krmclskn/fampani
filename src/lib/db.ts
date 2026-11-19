@@ -114,7 +114,7 @@ export async function get<T>(sql: string, ...p: P[]): Promise<T | undefined> {
   return r ? ({ ...r } as T) : undefined;
 }
 
-const NO_ID = new Set(["settings", "sessions", "sales_days", "sale_payments", "day_closings", "revenue_days", "revenue_lump"]);
+const NO_ID = new Set(["settings", "sessions", "sales_days", "sale_payments", "day_closings", "revenue_days", "revenue_lump", "task_participants"]);
 /** Yazma sorgusu. `id` sütunu olan tabloya INSERT yapılırsa yeni kaydın id'sini döner. */
 export async function run(sql: string, ...p: P[]): Promise<number> {
   const m = /^\s*insert\s+into\s+(\w+)/i.exec(sql);

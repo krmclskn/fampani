@@ -169,6 +169,17 @@ CREATE TABLE IF NOT EXISTS debt_payments (
   amount bigint NOT NULL, note text, user_id bigint REFERENCES users(id), at text
 );
 
+-- Yapılacaklar: öncelik (1 en yüksek), aciliyet, ikinci üstlenen, başlama zamanı, işi bitirenler.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS prio integer NOT NULL DEFAULT 2;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS urgent integer NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS assignee2_id bigint REFERENCES users(id);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS started_at text;
+CREATE TABLE IF NOT EXISTS task_participants (
+  task_id bigint NOT NULL REFERENCES tasks(id), user_id bigint NOT NULL REFERENCES users(id), PRIMARY KEY (task_id, user_id)
+);
+-- Stok sayım listesinde elle sıralama.
+ALTER TABLE stock_items ADD COLUMN IF NOT EXISTS position integer NOT NULL DEFAULT 0;
+
 -- Supabase'in otomatik REST API'si (anon anahtar) bu tablolara erişemesin: uygulama yalnızca sunucudan bağlanır.
 DO $$
 DECLARE t record;

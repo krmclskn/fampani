@@ -1,5 +1,6 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { all, audit, get, run, todayStr, tx } from "./db";
 import { can, requireUser, type User } from "./auth";
 import { fail, ok } from "./flash";
@@ -10,7 +11,7 @@ const id = (f: FormData, k = "id") => Number(f.get(k)) || 0;
 const isDate = (s: string | null): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
 async function admin(): Promise<User> {
   const u = await requireUser();
-  if (!can.seeFinance(u)) await fail("Bu işlem için yönetici yetkisi gerekir.");
+  if (!can.seeFinance(u)) redirect("/?hata=" + encodeURIComponent("Bu işlem için yönetici yetkisi gerekir."));
   return u;
 }
 async function setDay(date: string, cash: number, card: number, note: string | null, uid: number) {
